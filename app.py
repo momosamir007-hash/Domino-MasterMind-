@@ -189,7 +189,7 @@ elif phase == 'playing':
         show_message(S('msg'), S('msg_type'))
 
     st.markdown("### 🎯 الطاولة")
-    SVG.board(gs.board, w=900, h=170)
+    SVG.board(gs.board, h=170)
 
     with st.expander("👥 اللاعبون", expanded=True):
         SVG.players(gs, w=700, h=380)
