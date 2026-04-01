@@ -17,8 +17,24 @@ def show_message(msg: str, msg_type: str = "info"):
 
 
 def format_move(move) -> str:
-    """تنسيق حركة للسجل"""
+    """
+    تنسيق حركة للسجل
+    ★ يدعم move.who و move.pos (توافقية) ★
+    """
+    # ── استخراج اللاعب بأمان ──
+    player = getattr(move, 'who', None) or getattr(move, 'pos', None)
+
+    if player is None:
+        icon  = "🎲"
+        label = "؟"
+    else:
+        icon  = getattr(player, 'icon',  "🎲")
+        label = getattr(player, 'label', "؟")
+
+    # ── باس ──
     if move.is_pass:
-        return f"{move.pos.icon} {move.pos.label}: دق 🚫"
+        return f"{icon} {label}: دق 🚫"
+
+    # ── حركة عادية ──
     d = "⬅️ يسار" if move.direction == Direction.LEFT else "➡️ يمين"
-    return f"{move.pos.icon} {move.pos.label}: {move.tile} {d}"
+    return f"{icon} {label}: {move.tile} {d}"
