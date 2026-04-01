@@ -6,13 +6,12 @@ from enum import Enum
 import copy
 from game_engine.tiles import Tile, Board, Direction, ALL_TILES
 
-
 class Pos(Enum):
     """مواقع اللاعبين"""
-    ME = 0
-    RIGHT = 1
-    PARTNER = 2
-    LEFT = 3
+    ME = 0       # أنت (جنوب)
+    RIGHT = 1    # يمينك (غرب) - خصم
+    PARTNER = 2  # شريكك (شمال)
+    LEFT = 3     # يسارك (شرق) - خصم
 
     @property
     def is_enemy(self) -> bool:
@@ -25,21 +24,20 @@ class Pos(Enum):
     @property
     def label(self) -> str:
         return {
-            Pos.ME:      "أنت 🟢",
-            Pos.RIGHT:   "خصم يمين 🔴",
+            Pos.ME: "أنت 🟢",
+            Pos.RIGHT: "خصم يمين 🔴",
             Pos.PARTNER: "شريكك 🔵",
-            Pos.LEFT:    "خصم يسار 🟠",
+            Pos.LEFT: "خصم يسار 🟠",
         }[self]
 
     @property
     def icon(self) -> str:
         return {
-            Pos.ME:      "🟢",
-            Pos.RIGHT:   "🔴",
+            Pos.ME: "🟢",
+            Pos.RIGHT: "🔴",
             Pos.PARTNER: "🔵",
-            Pos.LEFT:    "🟠",
+            Pos.LEFT: "🟠",
         }[self]
-
 
 @dataclass
 class Player:
@@ -53,33 +51,16 @@ class Player:
     def total(self) -> int:
         return sum(t.total for t in self.hand)
 
-    # ★ خاصية جديدة: عدد مرات الباس (كانت ناقصة) ★
-    @property
-    def passes(self) -> int:
-        """عدد مرات الباس = عدد الأطراف اللي دق عليها ÷ 2 تقريباً"""
-        return len(self.passed_on) // 2 if self.passed_on else 0
-
-    # ★ خاصية جديدة: عدّاد باس فعلي ★
-    @property
-    def pass_count(self) -> int:
-        return self.passes
-
     def remove(self, tile: Tile):
         if tile in self.hand:
             self.hand.remove(tile)
             self.count = max(0, self.count - 1)
-
 
 @dataclass
 class Move:
     who: Pos
     tile: Optional[Tile]
     direction: Optional[Direction]
-
-    # ★ خاصية توافقية: pos = who ★
-    @property
-    def pos(self) -> Pos:
-        return self.who
 
     @property
     def is_pass(self) -> bool:
@@ -90,7 +71,6 @@ class Move:
             return f"{self.who.label}: دق 🚫"
         d = "⬅️" if self.direction == Direction.LEFT else "➡️"
         return f"{self.who.label}: {self.tile} {d}"
-
 
 @dataclass
 class GameState:
