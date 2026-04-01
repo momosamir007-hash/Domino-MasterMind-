@@ -17,7 +17,7 @@ st.set_page_config(page_title="🎲 دومينو عبقري", page_icon="🎲", 
 st.markdown("""
 <style>
     .stApp{background:linear-gradient(135deg,#0a0a1a,#111128)}
-    #MainMenu,footer,header{visibility:hidden}
+    #MainMenu,footer{visibility:hidden}
     .stButton>button{border-radius:10px!important;font-weight:600!important}
     .stButton>button:hover{transform:translateY(-2px)!important}
     [data-testid="stMetric"]{background:rgba(255,255,255,.04);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,.08)}
