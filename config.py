@@ -1,8 +1,11 @@
-"""⚙️ إعدادات المشروع"""
+from dataclasses import dataclass
 
-
+@dataclass
 class Config:
-    MCTS_SIMULATIONS = 1500
-    MCTS_TIME_LIMIT = 3.0
-    XRAY_ENABLED = True
-    VERSION = "2.0"
+    MAX_PIP: int = 6
+    NUM_PLAYERS: int = 4
+    HAND_SIZE: int = 7
+    TOTAL_TILES: int = 28
+    MCTS_SIMULATIONS: int = 2000
+    MCTS_TIME_LIMIT: float = 3.0
+    MCTS_EXPLORATION: float = 1.414
