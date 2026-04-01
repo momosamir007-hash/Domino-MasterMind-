@@ -1,34 +1,24 @@
-"""
-أحجار الدومينو والطاولة
-الملف كامل بدون أي اختصارات - تم إصلاح خطأ الاستنساخ المنطقي (Logic Bug)
-"""
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Set, Optional, Tuple
+"""🎲 حجر الدومينو والاتجاهات"""
+
 from enum import Enum
-import copy
+
 
 class Direction(Enum):
     LEFT = "left"
     RIGHT = "right"
 
-@dataclass(frozen=True)
+
 class Tile:
-    """حجر دومينو واحد"""
-    a: int
-    b: int
+    """حجر دومينو واحد [a|b]"""
 
-    def __post_init__(self):
-        # الحل الرياضي الآمن 100% لمنع خطأ الاستنساخ (Logic Bug)
-        # نقوم بتحديد الرقم الأكبر والأصغر في متغيرات منفصلة ومستقلة أولاً
-        max_val = max(self.a, self.b)
-        min_val = min(self.a, self.b)
-        
-        # ثم نقوم بإسناد القيم النهائية للحجر 
-        # (نستخدم object.__setattr__ لأن الكلاس من نوع frozen)
-        object.__setattr__(self, 'a', max_val)
-        object.__setattr__(self, 'b', min_val)
+    __slots__ = ("a", "b")
 
+    def __init__(self, a: int, b: int):
+        # التخزين بترتيب موحّد (الأصغر أولاً)
+        self.a = min(a, b)
+        self.b = max(a, b)
+
+    # ─── خصائص ─────────────────────────
     @property
     def is_double(self) -> bool:
         return self.a == self.b
@@ -37,86 +27,32 @@ class Tile:
     def total(self) -> int:
         return self.a + self.b
 
-    def has(self, v: int) -> bool:
-        return v in (self.a, self.b)
+    def has(self, n: int) -> bool:
+        return self.a == n or self.b == n
 
-    def other(self, v: int) -> int:
-        if v == self.a:
+    def other(self, n: int):
+        """أعطني الرقم الثاني"""
+        if self.a == n:
             return self.b
-        if v == self.b:
+        if self.b == n:
             return self.a
-        raise ValueError(f"{v} غير موجود في الحجر [{self.a}|{self.b}]")
+        return None
 
-    def __repr__(self):
-        return f"[{self.a}|{self.b}]"
-
-    def __eq__(self, o):
-        if not isinstance(o, Tile):
+    # ─── مقارنة وهاش ───────────────────
+    def __eq__(self, other):
+        if not isinstance(other, Tile):
             return False
-        return self.a == o.a and self.b == o.b
+        return self.a == other.a and self.b == other.b
 
     def __hash__(self):
         return hash((self.a, self.b))
 
+    def __repr__(self):
+        return f"[{self.a}|{self.b}]"
 
-# توليد كل الـ 28 حجر الخاصة بلعبة الدومينو القياسية
-ALL_TILES: Set[Tile] = frozenset(
-    Tile(i, j) for i in range(7) for j in range(i + 1)
-)
+    def __str__(self):
+        return f"[{self.a}|{self.b}]"
 
-@dataclass
-class Board:
-    """طاولة اللعب"""
-    played: List[Tuple[Tile, Direction]] = field(
-        default_factory=list
-    )
-    left: Optional[int] = None
-    right: Optional[int] = None
 
-    @property
-    def is_empty(self) -> bool:
-        return len(self.played) == 0
-
-    @property
-    def ends(self) -> Set[int]:
-        if self.is_empty:
-            return set()
-        return {self.left, self.right}
-
-    @property
-    def tiles_on_table(self) -> List[Tile]:
-        return [t for t, _ in self.played]
-
-    def can_play(self, tile: Tile) -> List[Direction]:
-        if self.is_empty:
-            return [Direction.LEFT]
-        
-        dirs = []
-        if tile.has(self.left):
-            dirs.append(Direction.LEFT)
-        if tile.has(self.right):
-            # نمنع تكرار الاتجاه إذا كان الحجر دبل والطاولة لها نفس الأطراف
-            if self.left != self.right or not dirs:
-                dirs.append(Direction.RIGHT)
-        return dirs
-
-    def play(self, tile: Tile, d: Direction) -> bool:
-        if self.is_empty:
-            self.played.append((tile, d))
-            self.left = tile.a
-            self.right = tile.b
-            return True
-
-        if d not in self.can_play(tile):
-            return False
-
-        if d == Direction.LEFT:
-            self.left = tile.other(self.left)
-        else:
-            self.right = tile.other(self.right)
-
-        self.played.append((tile, d))
-        return True
-
-    def clone(self) -> Board:
-        return copy.deepcopy(self)
+# ─── كل الأحجار (28 حجراً) ─────────────
+ALL_TILES = [Tile(i, j) for i in range(7) for j in range(i, 7)]
