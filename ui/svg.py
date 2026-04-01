@@ -1,10 +1,10 @@
 """
-🎨 محرك رسم SVG المتكامل — نسخة مُصحّحة
+🎨 محرك رسم SVG المتكامل
 ────────────────────────
 • الأحجار متّصلة بصرياً كسلسلة واحدة
-• الدبل يُرسم عمودياً (عمودي على خط السلسلة)
+• الدبل يُرسم عمودياً
 • نقاط اتصال نحاسية بين الأحجار
-• حماية من AttributeError
+• حماية كاملة من AttributeError
 """
 
 import streamlit.components.v1 as components
@@ -28,12 +28,12 @@ class SVGRenderer:
     """Static methods لرسم عناصر الدومينو بـ SVG"""
 
     # ── أبعاد الحجر ──
-    TW = 100           # عرض الحجر الأفقي
-    TH = 50            # ارتفاع الحجر الأفقي
-    HW = TW // 2       # نصف العرض
-    PR = 6             # نصف قطر النقطة
-    HAND_GAP = 8       # فراغ بين أحجار اليد
-    CHAIN_GAP = 2      # ★ فراغ ضئيل جداً في السلسلة (للالتصاق)
+    TW = 100         # عرض الحجر الأفقي
+    TH = 50          # ارتفاع الحجر الأفقي
+    HW = TW // 2     # نصف العرض
+    PR = 6           # نصف قطر النقطة
+    HAND_GAP = 8     # فراغ بين أحجار اليد
+    CHAIN_GAP = 2    # ★ فراغ ضئيل في السلسلة
 
     # ════════════════════════════════════
     #  أدوات مساعدة
@@ -50,12 +50,45 @@ class SVGRenderer:
 
     @staticmethod
     def _safe_player(p):
-        """استخراج بيانات اللاعب بأمان بدون AttributeError"""
+        """
+        ★ استخراج بيانات اللاعب بأمان تام ★
+        يحمي من أي AttributeError مهما كان شكل Player
+        """
+        # عدد الأحجار
+        count = getattr(p, 'count', None)
+        if count is None:
+            count = getattr(p, 'tile_count', 7)
+
+        # عدد مرات الباس
+        passes = 0
+        if hasattr(p, 'passes'):
+            try:
+                passes = p.passes
+            except Exception:
+                passes = 0
+        elif hasattr(p, 'pass_count'):
+            try:
+                passes = p.pass_count
+            except Exception:
+                passes = 0
+        elif hasattr(p, 'passed_on'):
+            passed_on = getattr(p, 'passed_on', set())
+            passes = len(passed_on) // 2 if passed_on else 0
+
+        # المجموع
+        total = 0
+        if hasattr(p, 'total'):
+            try:
+                total = p.total
+            except Exception:
+                total = 0
+        elif hasattr(p, 'score'):
+            total = getattr(p, 'score', 0)
+
         return {
-            'count':  getattr(p, 'count', getattr(p, 'tile_count', 7)),
-            'passes': getattr(p, 'passes', getattr(p, 'pass_count', 0)),
-            'total':  getattr(p, 'total', getattr(p, 'score', 0)),
-            'played': getattr(p, 'played', []),
+            'count':  count,
+            'passes': passes,
+            'total':  total,
         }
 
     @staticmethod
@@ -123,9 +156,9 @@ class SVGRenderer:
     @staticmethod
     def _draw_chain_tile(tile, x, y, vertical=False):
         """
-        ارسم حجراً واحداً في سلسلة الطاولة.
-        vertical=False → أفقي عادي (TW × TH)
-        vertical=True  → دبل عمودي (TH × TW)
+        ارسم حجراً في السلسلة
+        vertical=False → أفقي عادي (100×50)
+        vertical=True  → دبل عمودي (50×100)
         """
         TW = SVGRenderer.TW
         TH = SVGRenderer.TH
@@ -133,19 +166,17 @@ class SVGRenderer:
         is_dbl = tile.a == tile.b
         fill = "#FFFFF0"
         stroke = "#37474F"
-        rx = 4  # ★ زوايا صغيرة للالتصاق النظيف
+        rx = 4
 
         if vertical:
-            # ── دبل عمودي: عرض=TH  ارتفاع=TW ──
-            vw = TH       # 50
-            vh = TW       # 100
+            # ── دبل عمودي: عرض=50  ارتفاع=100 ──
+            vw = TH        # 50
+            vh = TW        # 100
             half = vh // 2  # 50
 
             s = f'<g transform="translate({x},{y})">\n'
-            # ظل خفيف
             s += (f'<rect x="1" y="1" width="{vw}" height="{vh}" '
                   f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
-            # جسم
             s += (f'<rect width="{vw}" height="{vh}" rx="{rx}" '
                   f'fill="{fill}" stroke="{stroke}" '
                   f'stroke-width="1.5"/>\n')
@@ -153,14 +184,14 @@ class SVGRenderer:
             s += (f'<line x1="4" y1="{half}" x2="{vw-4}" '
                   f'y2="{half}" stroke="#90A4AE" '
                   f'stroke-width="1.5" stroke-dasharray="3,2"/>\n')
-            # نقاط: نصف علوي ← tile.a
+            # نقاط
             s += SVGRenderer._draw_pips(tile.a, 0, 0, vw, half, True)
-            # نقاط: نصف سفلي ← tile.b
             s += SVGRenderer._draw_pips(tile.b, 0, half, vw, half, True)
             s += '</g>\n'
             return s
+
         else:
-            # ── عادي أفقي: عرض=TW  ارتفاع=TH ──
+            # ── عادي أفقي: عرض=100  ارتفاع=50 ──
             s = f'<g transform="translate({x},{y})">\n'
             s += (f'<rect x="1" y="1" width="{TW}" height="{TH}" '
                   f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
@@ -175,10 +206,6 @@ class SVGRenderer:
             s += '</g>\n'
             return s
 
-    # ════════════════════════════════════
-    #  ★ نقطة الاتصال النحاسية
-    # ════════════════════════════════════
-
     @staticmethod
     def _draw_connector(x, y):
         """نقطة اتصال نحاسية بين حجرين"""
@@ -191,10 +218,6 @@ class SVGRenderer:
     # ════════════════════════════════════
     #  الدوال العامة (API)
     # ════════════════════════════════════
-
-    # ─────────────────────────────────
-    #  يد اللاعب
-    # ─────────────────────────────────
 
     @staticmethod
     def hand(tiles, glowing=None, title="يدك"):
@@ -236,21 +259,20 @@ class SVGRenderer:
     def board(board, w=900, h=180):
         """
         ━━━ رسم سلسلة الطاولة ━━━
-        • الأحجار ملتصقة بدون فراغ
-        • الدبل عمودي ⊥ السلسلة
-        • نقاط اتصال نحاسية عند الالتقاء
+        • الأحجار ملتصقة
+        • الدبل عمودي
+        • نقاط اتصال نحاسية
         """
-        TW = SVGRenderer.TW       # 100
-        TH = SVGRenderer.TH       # 50
-        GAP = SVGRenderer.CHAIN_GAP  # 2
+        TW = SVGRenderer.TW
+        TH = SVGRenderer.TH
+        GAP = SVGRenderer.CHAIN_GAP
 
         # ── طاولة فارغة ──
         if board.is_empty:
             svg = (
                 f'<svg width="{w}" height="{h}">'
                 f'<rect width="100%" height="100%" rx="16" '
-                f'fill="#1B5E20" stroke="#2E7D32" '
-                f'stroke-width="3"/>'
+                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>'
                 f'<text x="50%" y="50%" text-anchor="middle" '
                 f'fill="white" font-size="15" opacity="0.4">'
                 f'🎲 الطاولة فارغة — ابدأ اللعب</text></svg>'
@@ -258,11 +280,10 @@ class SVGRenderer:
             SVGRenderer._html(svg, h)
             return
 
-        # ── تحليل الأحجار الملعوبة ──
+        # ── تحليل الأحجار ──
         played = board.played_tiles
         n = len(played)
 
-        # بناء معلومات السلسلة
         chain = []
         total_chain_w = 0
         has_double = False
@@ -270,8 +291,7 @@ class SVGRenderer:
         for item in played:
             tile = item[0] if isinstance(item, (tuple, list)) else item
             is_dbl = (tile.a == tile.b)
-            # ★ الدبل عرضه TH(50) على المحور الأفقي
-            tw = TH if is_dbl else TW
+            tw = TH if is_dbl else TW  # ★ الدبل أضيق
             chain.append((tile, is_dbl, tw))
             total_chain_w += tw + GAP
             if is_dbl:
@@ -290,57 +310,55 @@ class SVGRenderer:
                f'width="{full_w}" height="{board_h}">\n')
 
         # تعريفات
-        svg += '<defs>\n'
         svg += (
+            '<defs>\n'
             '  <filter id="chainShadow" x="-2%" y="-2%" '
             'width="104%" height="110%">\n'
             '    <feDropShadow dx="3" dy="4" stdDeviation="3" '
             'flood-opacity="0.25"/>\n'
             '  </filter>\n'
+            '</defs>\n'
         )
-        svg += '</defs>\n'
 
         # ── خلفية الطاولة ──
         svg += (f'<rect width="{full_w}" height="{board_h}" rx="16" '
-                f'fill="#1B5E20" stroke="#2E7D32" '
-                f'stroke-width="3"/>\n')
+                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>\n')
 
-        # خط مرجعي خفيف
+        # خط مرجعي
         svg += (f'<line x1="30" y1="{mid_y}" '
                 f'x2="{full_w-30}" y2="{mid_y}" '
-                f'stroke="#2E7D32" stroke-width="1" '
-                f'opacity="0.2"/>\n')
+                f'stroke="#2E7D32" stroke-width="1" opacity="0.2"/>\n')
 
         # ── رسم السلسلة ──
         start_x = max(30, (full_w - total_chain_w) // 2)
         svg += '<g filter="url(#chainShadow)">\n'
 
         cx = start_x
-        positions = []  # [(x, width, is_dbl)] لحساب نقاط الاتصال
+        positions = []
 
         for i, (tile, is_dbl, tw) in enumerate(chain):
             if is_dbl:
-                # ★ الدبل عمودي: يبرز فوق وتحت خط الوسط
-                ty = mid_y - TW // 2  # TW=100 هو ارتفاع الدبل
+                # ★ دبل عمودي: يبرز فوق وتحت
+                ty = mid_y - TW // 2
                 svg += SVGRenderer._draw_chain_tile(
                     tile, cx, ty, vertical=True
                 )
             else:
-                # عادي أفقي: متمركز على خط الوسط
+                # عادي أفقي
                 ty = mid_y - TH // 2
                 svg += SVGRenderer._draw_chain_tile(
                     tile, cx, ty, vertical=False
                 )
 
-            positions.append((cx, tw, is_dbl))
+            positions.append((cx, tw))
             cx += tw + GAP
 
         svg += '</g>\n'
 
-        # ── نقاط الاتصال النحاسية ──
+        # ── نقاط الاتصال ──
         for i in range(len(positions) - 1):
-            px, pw, _ = positions[i]
-            jx = px + pw + GAP // 2  # نقطة بين الحجرين
+            px, pw = positions[i]
+            jx = px + pw + GAP // 2
             svg += SVGRenderer._draw_connector(jx, mid_y)
 
         # ── مؤشرات الأطراف ──
@@ -372,7 +390,7 @@ class SVGRenderer:
         SVGRenderer._html(svg, board_h + 20)
 
     # ─────────────────────────────────
-    #  ★ خريطة اللاعبين — مع حماية الأخطاء ★
+    #  ★ خريطة اللاعبين — محمية ★
     # ─────────────────────────────────
 
     @staticmethod
@@ -401,10 +419,10 @@ class SVGRenderer:
         for pos, (px, py, name, clr) in layout.items():
             p = state.players[pos]
 
-            # ★★★ استخراج آمن — يمنع AttributeError ★★★
+            # ★★★ استخراج آمن — يمنع أي AttributeError ★★★
             info = SVGRenderer._safe_player(p)
             remaining = info['count']
-            passes    = info['passes']
+            passes = info['passes']
 
             is_current = (pos == state.turn)
             sw = "3" if is_current else "1.5"
@@ -417,7 +435,7 @@ class SVGRenderer:
                     f'height="{card_h}" rx="12" fill="#0d1117" '
                     f'stroke="{clr}" stroke-width="{sw}"/>\n')
 
-            # وهج الدور الحالي
+            # وهج الدور
             if is_current:
                 svg += (
                     f'<rect x="{rx}" y="{ry}" width="{card_w}" '
@@ -439,7 +457,7 @@ class SVGRenderer:
                     f'text-anchor="middle" fill="{clr}" '
                     f'font-size="10">{remaining} أحجار</text>\n')
 
-            # ★ باس — بأمان ★
+            # ★ باس — بأمان تام ★
             if passes > 0:
                 svg += (f'<text x="{px}" y="{py + 26}" '
                         f'text-anchor="middle" fill="#FF5722" '
@@ -472,8 +490,7 @@ class SVGRenderer:
         svg = (f'<svg viewBox="0 0 {w} {h}" '
                f'width="{w}" height="{h}">\n')
         svg += (f'<rect width="{w}" height="{h}" rx="14" '
-                f'fill="#0d1117" stroke="#222" '
-                f'stroke-width="1"/>\n')
+                f'fill="#0d1117" stroke="#222" stroke-width="1"/>\n')
         svg += (f'<text x="{w//2}" y="24" text-anchor="middle" '
                 f'fill="#aaa" font-size="13" font-weight="bold">'
                 f'📊 تحليل الحركات المتاحة</text>\n')
