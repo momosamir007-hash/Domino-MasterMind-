@@ -42,7 +42,6 @@ DEFAULTS = {
     'sims': 1500,
     'time_limit': 3.0,
     'show_xray': True,
-    'all_played': [],
     'pending_tile': None,
 }
 for k, v in DEFAULTS.items():
@@ -71,22 +70,18 @@ def tile_key(t):
 
 def get_remaining_tiles(gs):
     """
-    الأحجار المتبقية = كل الأحجار − يدي − الملعوبة على الطاولة
-    هذه هي الأحجار التي يمكن أن تكون عند الخصوم أو الشريك
+    الأحجار المتبقية استناداً إلى المحرك مباشرة!
+    = كل الأحجار − يدي − الموجودة فعلياً على الطاولة
     """
     used = set()
     for t in gs.my_hand:
         used.add(tile_key(t))
-    for ab in S('all_played'):
-        used.add(tile_key(ab))
+    
+    # نأخذ الأحجار من الطاولة مباشرة بدلاً من القوائم المساعدة لمنع أخطاء التكرار
+    for t in gs.board.tiles_on_table:
+        used.add(tile_key(t))
+        
     return [t for t in ALL_TILES if tile_key(t) not in used]
-
-
-def track_played(tile):
-    """يسجّل أن هذا الحجر لُعب على الطاولة"""
-    ap = S('all_played')
-    ap.append((tile.a, tile.b))
-    S('all_played', ap)
 
 
 def apply_opponent_move(gs, turn, tile, direction):
@@ -96,22 +91,24 @@ def apply_opponent_move(gs, turn, tile, direction):
     # نقوم بتنقيص العداد يدوياً لأن يد الخصم مجهولة
     gs.players[turn].count -= 1
     
-    # تطبيق الحركة عبر المحرك (وهو يتكفل بإضافة الحجر لسجل الملعوب)
+    # تطبيق الحركة عبر المحرك (وهو يتكفل بإضافة الحجر للطاولة)
     ok = gs.apply(m)
     
     if not ok:
-        # إذا رفض المحرك الحركة لأي سبب، نلغي تنقيص العداد لتجنب فساد البيانات
         gs.players[turn].count += 1
         show_message("❌ فشل تطبيق الحركة داخلياً!", "error")
         return
 
-    track_played(tile)
-    S('log', S('log') + [format_move(m)])
+    # إنشاء سجل نظيف
+    new_log = list(S('log')) + [format_move(m)]
+    S('log', new_log)
     S('advice', None)
     S('pending_tile', None)
+    
     dir_label = "⬅️ يسار" if direction == Direction.LEFT else "➡️ يمين"
     S('msg', f"✅ {turn.label} لعب [{tile.a}|{tile.b}] {dir_label}")
     S('msg_type', 'info')
+    
     if gs.game_over:
         S('phase', 'over')
 
@@ -293,8 +290,8 @@ elif phase == 'playing':
                         type="primary" if is_rec else "secondary",
                     ):
                         gs.apply(m)
-                        track_played(m.tile)
-                        S('log', S('log') + [format_move(m)])
+                        new_log = list(S('log')) + [format_move(m)]
+                        S('log', new_log)
                         S('advice', None)
                         S('msg', f"✅ لعبت {m.tile}")
                         S('msg_type', 'success')
@@ -304,7 +301,8 @@ elif phase == 'playing':
         if any(m.is_pass for m in valid):
             if st.button("🚫 دق", use_container_width=True):
                 gs.apply(Move(Pos.ME, None, None))
-                S('log', S('log') + ["🟢 أنت: دق 🚫"])
+                new_log = list(S('log')) + ["🟢 أنت: دق 🚫"]
+                S('log', new_log)
                 S('advice', None)
                 S('msg', "🚫 دقيت")
                 S('msg_type', 'warning')
@@ -333,7 +331,6 @@ elif phase == 'playing':
             """, unsafe_allow_html=True)
             c1, _, c2 = st.columns([2, 1, 2])
             
-            # 🟢 الحل السحري: مفتاح ديناميكي يتغير بتغير الحجر والدور ليمنع تشنج Streamlit
             btn_key = f"{pending.a}_{pending.b}_{turn.value}"
             
             with c1:
@@ -352,7 +349,6 @@ elif phase == 'playing':
         # ─── حالة 2: اختيار حجر (العرض الذكي) ───
         else:
             remaining = get_remaining_tiles(gs)
-            # فلترة: فقط الأحجار التي تركب على أطراف الطاولة
             if gs.board.is_empty:
                 playable = remaining
             else:
@@ -364,7 +360,6 @@ elif phase == 'playing':
                     f"👇 اضغط على الحجر الذي لعبه **{name}** "
                     f"• {len(playable)} حجر متاح من أصل {len(remaining)} متبقي:"
                 )
-                # عرض شبكة الأزرار
                 ncols = min(len(playable), 5)
                 for row_start in range(0, len(playable), ncols):
                     row_tiles = playable[row_start:row_start + ncols]
@@ -376,7 +371,6 @@ elif phase == 'playing':
                                 key=f"opp_{t.a}_{t.b}_{turn.value}",
                                 use_container_width=True,
                             ):
-                                # 🟢 الاعتماد الكلي على المحرك الأساسي بدلاً من get_possible_directions
                                 dirs = gs.board.can_play(t) 
                                 if len(dirs) == 1:
                                     apply_opponent_move(gs, turn, t, dirs[0])
@@ -401,7 +395,8 @@ elif phase == 'playing':
                 use_container_width=True,
             ):
                 gs.apply(Move(turn, None, None))
-                S('log', S('log') + [f"{turn.icon} {turn.label}: دق 🚫"])
+                new_log = list(S('log')) + [f"{turn.icon} {turn.label}: دق 🚫"]
+                S('log', new_log)
                 S('advice', None)
                 S('msg', f"🚫 {name} دق")
                 S('msg_type', 'warning')
@@ -463,3 +458,4 @@ elif phase == 'over':
     if st.button("🔄 لعبة جديدة", use_container_width=True, type="primary"):
         reset()
         st.rerun()
+
