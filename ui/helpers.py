@@ -1,20 +1,24 @@
-"""أدوات واجهة بسيطة"""
+"""🔧 دوال مساعدة للواجهة"""
+
 import streamlit as st
-from game_engine.state import Move, Pos
 from game_engine.tiles import Direction
 
-def show_message(msg, mtype="info"):
-    {
-        "info": st.info,
-        "success": st.success,
-        "warning": st.warning,
-        "error": st.error
-    }.get(mtype, st.info)(msg)
 
-def format_move(move: Move) -> str:
-    icon = move.who.icon
-    name = move.who.label
+def show_message(msg: str, msg_type: str = "info"):
+    """عرض رسالة ملونة"""
+    if msg_type == "success":
+        st.success(msg)
+    elif msg_type == "warning":
+        st.warning(msg)
+    elif msg_type == "error":
+        st.error(msg)
+    else:
+        st.info(msg)
+
+
+def format_move(move) -> str:
+    """تنسيق حركة للسجل"""
     if move.is_pass:
-        return f"{icon} {name}: دق 🚫"
-    d = "⬅️" if move.direction == Direction.LEFT else "➡️"
-    return f"{icon} {name}: {move.tile} {d}"
+        return f"{move.pos.icon} {move.pos.label}: دق 🚫"
+    d = "⬅️ يسار" if move.direction == Direction.LEFT else "➡️ يمين"
+    return f"{move.pos.icon} {move.pos.label}: {move.tile} {d}"
