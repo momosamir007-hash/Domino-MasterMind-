@@ -1,16 +1,14 @@
 """
 🎨 محرك رسم SVG المتكامل
 ────────────────────────
-• الأحجار متّصلة بصرياً كسلسلة واحدة
-• الدبل يُرسم عمودياً
-• نقاط اتصال نحاسية بين الأحجار
-• حماية كاملة من AttributeError
+• حماية كاملة من كل AttributeError
+• الأحجار متّصلة بصرياً كسلسلة
+• الدبل عمودي
 """
 
 import streamlit.components.v1 as components
 from typing import List, Optional
 
-# ─── إحداثيات النقاط داخل نصف الحجر ───────────
 PIP_POSITIONS = {
     0: [],
     1: [(0.5, 0.5)],
@@ -25,15 +23,12 @@ PIP_POSITIONS = {
 
 
 class SVGRenderer:
-    """Static methods لرسم عناصر الدومينو بـ SVG"""
-
-    # ── أبعاد الحجر ──
-    TW = 100         # عرض الحجر الأفقي
-    TH = 50          # ارتفاع الحجر الأفقي
-    HW = TW // 2     # نصف العرض
-    PR = 6           # نصف قطر النقطة
-    HAND_GAP = 8     # فراغ بين أحجار اليد
-    CHAIN_GAP = 2    # ★ فراغ ضئيل في السلسلة
+    TW = 100
+    TH = 50
+    HW = TW // 2
+    PR = 6
+    HAND_GAP = 8
+    CHAIN_GAP = 2
 
     # ════════════════════════════════════
     #  أدوات مساعدة
@@ -50,50 +45,124 @@ class SVGRenderer:
 
     @staticmethod
     def _safe_player(p):
-        """
-        ★ استخراج بيانات اللاعب بأمان تام ★
-        يحمي من أي AttributeError مهما كان شكل Player
-        """
-        # عدد الأحجار
+        """استخراج بيانات اللاعب بأمان"""
         count = getattr(p, 'count', None)
         if count is None:
             count = getattr(p, 'tile_count', 7)
 
-        # عدد مرات الباس
         passes = 0
-        if hasattr(p, 'passes'):
+        if hasattr(p, 'passed_on'):
+            passed_on = getattr(p, 'passed_on', set())
+            if isinstance(passed_on, set):
+                passes = len(passed_on) // 2 if passed_on else 0
+            else:
+                passes = 0
+        elif hasattr(p, 'passes'):
             try:
                 passes = p.passes
             except Exception:
                 passes = 0
-        elif hasattr(p, 'pass_count'):
-            try:
-                passes = p.pass_count
-            except Exception:
-                passes = 0
-        elif hasattr(p, 'passed_on'):
-            passed_on = getattr(p, 'passed_on', set())
-            passes = len(passed_on) // 2 if passed_on else 0
 
-        # المجموع
         total = 0
-        if hasattr(p, 'total'):
-            try:
-                total = p.total
-            except Exception:
-                total = 0
-        elif hasattr(p, 'score'):
+        try:
+            total = p.total
+        except Exception:
             total = getattr(p, 'score', 0)
 
-        return {
-            'count':  count,
-            'passes': passes,
-            'total':  total,
-        }
+        return {'count': count, 'passes': passes, 'total': total}
+
+    # ════════════════════════════════════
+    #  ★★★ استخراج أحجار الطاولة بأمان ★★★
+    # ════════════════════════════════════
+
+    @staticmethod
+    def _get_board_tiles(board):
+        """
+        يستخرج قائمة الأحجار الملعوبة من Board
+        يجرّب كل الأسماء المحتملة ويُرجع list[Tile]
+        """
+        # ── 1) played_tiles ──
+        tiles = getattr(board, 'played_tiles', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 2) chain ──
+        tiles = getattr(board, 'chain', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 3) _chain (خاص) ──
+        tiles = getattr(board, '_chain', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 4) tiles ──
+        tiles = getattr(board, 'tiles', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 5) _tiles ──
+        tiles = getattr(board, '_tiles', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 6) tiles_on_table ──
+        tiles = getattr(board, 'tiles_on_table', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 7) history ──
+        tiles = getattr(board, 'history', None)
+        if tiles is not None:
+            return SVGRenderer._normalize_tiles(tiles)
+
+        # ── 8) البحث في كل الخصائص ──
+        for attr_name in dir(board):
+            if attr_name.startswith('__'):
+                continue
+            try:
+                val = getattr(board, attr_name)
+                if isinstance(val, (list, tuple)) and len(val) > 0:
+                    normalized = SVGRenderer._normalize_tiles(val)
+                    if normalized:
+                        return normalized
+            except Exception:
+                continue
+
+        return []
+
+    @staticmethod
+    def _normalize_tiles(tiles):
+        """
+        يحوّل أي شكل من أشكال القائمة إلى list[Tile]
+        يدعم: list[Tile], list[(Tile,Dir)], set[Tile], deque, etc.
+        """
+        result = []
+        try:
+            items = list(tiles)
+        except Exception:
+            return []
+
+        for item in items:
+            if item is None:
+                continue
+            # ── (Tile, Direction) tuple ──
+            if isinstance(item, (tuple, list)):
+                tile = item[0] if len(item) > 0 else None
+                if tile is not None and hasattr(tile, 'a') and hasattr(tile, 'b'):
+                    result.append(tile)
+            # ── Tile مباشر ──
+            elif hasattr(item, 'a') and hasattr(item, 'b'):
+                result.append(item)
+
+        return result
+
+    # ════════════════════════════════════
+    #  رسم النقاط
+    # ════════════════════════════════════
 
     @staticmethod
     def _draw_pips(count, ox, oy, aw, ah, is_double=False):
-        """ارسم نقاط (pips) داخل مستطيل محدد"""
         pts = PIP_POSITIONS.get(count, [])
         clr = "#CC0000" if is_double else "#1a1a2e"
         pad = 7
@@ -106,15 +175,12 @@ class SVGRenderer:
         return s
 
     # ════════════════════════════════════
-    #  رسم حجر اليد (أفقي دائماً)
+    #  رسم حجر اليد
     # ════════════════════════════════════
 
     @staticmethod
     def _draw_tile(tile, x=0, y=0, hl=False, glow=False):
-        """ارسم حجراً أفقياً — يُستخدم لعرض يد اللاعب"""
-        TW = SVGRenderer.TW
-        TH = SVGRenderer.TH
-        HW = SVGRenderer.HW
+        TW, TH, HW = SVGRenderer.TW, SVGRenderer.TH, SVGRenderer.HW
 
         if glow:
             fill, stroke, sw = "#E8F5E9", "#4CAF50", 3
@@ -124,22 +190,16 @@ class SVGRenderer:
             fill, stroke, sw = "#FFFFFF", "#455A64", 2
 
         is_dbl = tile.a == tile.b
-
         s = f'<g transform="translate({x},{y})">\n'
-        # ظل
         s += (f'<rect x="3" y="3" width="{TW}" height="{TH}" '
               f'rx="8" fill="rgba(0,0,0,0.15)"/>\n')
-        # جسم
         s += (f'<rect width="{TW}" height="{TH}" rx="8" '
               f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>\n')
-        # فاصل
         s += (f'<line x1="{HW}" y1="5" x2="{HW}" y2="{TH-5}" '
               f'stroke="#90A4AE" stroke-width="1.5" '
               f'stroke-dasharray="3,2"/>\n')
-        # نقاط
         s += SVGRenderer._draw_pips(tile.a, 0, 0, HW, TH, is_dbl)
         s += SVGRenderer._draw_pips(tile.b, HW, 0, HW, TH, is_dbl)
-        # وهج
         if glow:
             s += (f'<rect width="{TW}" height="{TH}" rx="8" '
                   f'fill="none" stroke="#66BB6A" stroke-width="2">\n'
@@ -150,48 +210,30 @@ class SVGRenderer:
         return s
 
     # ════════════════════════════════════
-    #  ★ رسم حجر في سلسلة الطاولة
+    #  رسم حجر في السلسلة
     # ════════════════════════════════════
 
     @staticmethod
     def _draw_chain_tile(tile, x, y, vertical=False):
-        """
-        ارسم حجراً في السلسلة
-        vertical=False → أفقي عادي (100×50)
-        vertical=True  → دبل عمودي (50×100)
-        """
-        TW = SVGRenderer.TW
-        TH = SVGRenderer.TH
-        HW = SVGRenderer.HW
-        is_dbl = tile.a == tile.b
-        fill = "#FFFFF0"
-        stroke = "#37474F"
-        rx = 4
+        TW, TH, HW = SVGRenderer.TW, SVGRenderer.TH, SVGRenderer.HW
+        fill, stroke, rx = "#FFFFF0", "#37474F", 4
 
         if vertical:
-            # ── دبل عمودي: عرض=50  ارتفاع=100 ──
-            vw = TH        # 50
-            vh = TW        # 100
-            half = vh // 2  # 50
-
+            vw, vh = TH, TW
+            half = vh // 2
             s = f'<g transform="translate({x},{y})">\n'
             s += (f'<rect x="1" y="1" width="{vw}" height="{vh}" '
                   f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
             s += (f'<rect width="{vw}" height="{vh}" rx="{rx}" '
                   f'fill="{fill}" stroke="{stroke}" '
                   f'stroke-width="1.5"/>\n')
-            # فاصل أفقي
             s += (f'<line x1="4" y1="{half}" x2="{vw-4}" '
                   f'y2="{half}" stroke="#90A4AE" '
                   f'stroke-width="1.5" stroke-dasharray="3,2"/>\n')
-            # نقاط
             s += SVGRenderer._draw_pips(tile.a, 0, 0, vw, half, True)
             s += SVGRenderer._draw_pips(tile.b, 0, half, vw, half, True)
             s += '</g>\n'
-            return s
-
         else:
-            # ── عادي أفقي: عرض=100  ارتفاع=50 ──
             s = f'<g transform="translate({x},{y})">\n'
             s += (f'<rect x="1" y="1" width="{TW}" height="{TH}" '
                   f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
@@ -204,11 +246,10 @@ class SVGRenderer:
             s += SVGRenderer._draw_pips(tile.a, 0, 0, HW, TH, False)
             s += SVGRenderer._draw_pips(tile.b, HW, 0, HW, TH, False)
             s += '</g>\n'
-            return s
+        return s
 
     @staticmethod
     def _draw_connector(x, y):
-        """نقطة اتصال نحاسية بين حجرين"""
         return (
             f'<circle cx="{x}" cy="{y}" r="4" '
             f'fill="#8D6E63" stroke="#5D4037" stroke-width="0.8" '
@@ -221,13 +262,10 @@ class SVGRenderer:
 
     @staticmethod
     def hand(tiles, glowing=None, title="يدك"):
-        """━━━ رسم يد اللاعب ━━━"""
         if not tiles:
             return
         glowing = glowing or []
-
-        TW = SVGRenderer.TW
-        TH = SVGRenderer.TH
+        TW, TH = SVGRenderer.TW, SVGRenderer.TH
         GAP = SVGRenderer.HAND_GAP
         n = len(tiles)
         svg_w = n * (TW + GAP) + 40
@@ -247,28 +285,26 @@ class SVGRenderer:
             svg += SVGRenderer._draw_tile(
                 tile, x, 25, glow=(i in glowing)
             )
-
         svg += '</svg>'
         SVGRenderer._html(svg, svg_h + 10)
 
     # ─────────────────────────────────
-    #  ★★★ الطاولة — سلسلة متصلة ★★★
+    #  ★★★ الطاولة ★★★
     # ─────────────────────────────────
 
     @staticmethod
     def board(board, w=900, h=180):
-        """
-        ━━━ رسم سلسلة الطاولة ━━━
-        • الأحجار ملتصقة
-        • الدبل عمودي
-        • نقاط اتصال نحاسية
-        """
-        TW = SVGRenderer.TW
-        TH = SVGRenderer.TH
+        TW, TH = SVGRenderer.TW, SVGRenderer.TH
         GAP = SVGRenderer.CHAIN_GAP
 
         # ── طاولة فارغة ──
-        if board.is_empty:
+        is_empty = getattr(board, 'is_empty', True)
+        try:
+            is_empty = board.is_empty
+        except Exception:
+            is_empty = True
+
+        if is_empty:
             svg = (
                 f'<svg width="{w}" height="{h}">'
                 f'<rect width="100%" height="100%" rx="16" '
@@ -280,18 +316,30 @@ class SVGRenderer:
             SVGRenderer._html(svg, h)
             return
 
-        # ── تحليل الأحجار ──
-        played = board.played_tiles
-        n = len(played)
+        # ── ★ استخراج الأحجار بأمان ★ ──
+        played_tiles = SVGRenderer._get_board_tiles(board)
+        n = len(played_tiles)
 
+        if n == 0:
+            svg = (
+                f'<svg width="{w}" height="{h}">'
+                f'<rect width="100%" height="100%" rx="16" '
+                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>'
+                f'<text x="50%" y="50%" text-anchor="middle" '
+                f'fill="white" font-size="15" opacity="0.4">'
+                f'🎲 الطاولة فارغة</text></svg>'
+            )
+            SVGRenderer._html(svg, h)
+            return
+
+        # ── بناء السلسلة ──
         chain = []
         total_chain_w = 0
         has_double = False
 
-        for item in played:
-            tile = item[0] if isinstance(item, (tuple, list)) else item
+        for tile in played_tiles:
             is_dbl = (tile.a == tile.b)
-            tw = TH if is_dbl else TW  # ★ الدبل أضيق
+            tw = TH if is_dbl else TW
             chain.append((tile, is_dbl, tw))
             total_chain_w += tw + GAP
             if is_dbl:
@@ -301,7 +349,6 @@ class SVGRenderer:
         if total_chain_w < 0:
             total_chain_w = 0
 
-        # ── أبعاد اللوحة ──
         board_h = max(h, 220) if has_double else h
         full_w = max(w, total_chain_w + 120)
         mid_y = board_h // 2
@@ -309,7 +356,6 @@ class SVGRenderer:
         svg = (f'<svg viewBox="0 0 {full_w} {board_h}" '
                f'width="{full_w}" height="{board_h}">\n')
 
-        # تعريفات
         svg += (
             '<defs>\n'
             '  <filter id="chainShadow" x="-2%" y="-2%" '
@@ -320,11 +366,9 @@ class SVGRenderer:
             '</defs>\n'
         )
 
-        # ── خلفية الطاولة ──
+        # خلفية
         svg += (f'<rect width="{full_w}" height="{board_h}" rx="16" '
                 f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>\n')
-
-        # خط مرجعي
         svg += (f'<line x1="30" y1="{mid_y}" '
                 f'x2="{full_w-30}" y2="{mid_y}" '
                 f'stroke="#2E7D32" stroke-width="1" opacity="0.2"/>\n')
@@ -336,34 +380,35 @@ class SVGRenderer:
         cx = start_x
         positions = []
 
-        for i, (tile, is_dbl, tw) in enumerate(chain):
+        for tile, is_dbl, tw in chain:
             if is_dbl:
-                # ★ دبل عمودي: يبرز فوق وتحت
                 ty = mid_y - TW // 2
                 svg += SVGRenderer._draw_chain_tile(
                     tile, cx, ty, vertical=True
                 )
             else:
-                # عادي أفقي
                 ty = mid_y - TH // 2
                 svg += SVGRenderer._draw_chain_tile(
                     tile, cx, ty, vertical=False
                 )
-
             positions.append((cx, tw))
             cx += tw + GAP
 
         svg += '</g>\n'
 
-        # ── نقاط الاتصال ──
+        # نقاط اتصال
         for i in range(len(positions) - 1):
             px, pw = positions[i]
             jx = px + pw + GAP // 2
             svg += SVGRenderer._draw_connector(jx, mid_y)
 
         # ── مؤشرات الأطراف ──
-        left_end = board.left if board.left is not None else "?"
-        right_end = board.right if board.right is not None else "?"
+        left_end = getattr(board, 'left', "?")
+        right_end = getattr(board, 'right', "?")
+        if left_end is None:
+            left_end = "?"
+        if right_end is None:
+            right_end = "?"
 
         svg += (f'<rect x="8" y="{board_h-40}" width="62" '
                 f'height="28" rx="6" fill="rgba(0,0,0,0.35)"/>\n')
@@ -380,7 +425,6 @@ class SVGRenderer:
                 f'font-size="13" font-weight="bold">'
                 f'{right_end} ➡</text>\n')
 
-        # عدّاد
         svg += (f'<text x="{full_w//2}" y="20" '
                 f'text-anchor="middle" fill="#66BB6A" '
                 f'font-size="11" opacity="0.7">'
@@ -390,20 +434,17 @@ class SVGRenderer:
         SVGRenderer._html(svg, board_h + 20)
 
     # ─────────────────────────────────
-    #  ★ خريطة اللاعبين — محمية ★
+    #  خريطة اللاعبين
     # ─────────────────────────────────
 
     @staticmethod
     def players(state, w=700, h=400):
-        """━━━ خريطة اللاعبين حول الطاولة ━━━"""
         from game_engine.state import Pos
 
         cx, cy = w // 2, h // 2
-
         svg = (f'<svg viewBox="0 0 {w} {h}" '
                f'width="{w}" height="{h}">\n')
 
-        # طاولة بيضاوية
         svg += (f'<ellipse cx="{cx}" cy="{cy}" '
                 f'rx="{w//3}" ry="{h//4}" fill="#1B5E20" '
                 f'stroke="#2E7D32" stroke-width="2" '
@@ -418,24 +459,24 @@ class SVGRenderer:
 
         for pos, (px, py, name, clr) in layout.items():
             p = state.players[pos]
-
-            # ★★★ استخراج آمن — يمنع أي AttributeError ★★★
             info = SVGRenderer._safe_player(p)
             remaining = info['count']
             passes = info['passes']
 
-            is_current = (pos == state.turn)
-            sw = "3" if is_current else "1.5"
+            is_current = False
+            try:
+                is_current = (pos == state.turn)
+            except Exception:
+                pass
 
+            sw = "3" if is_current else "1.5"
             card_w, card_h = 130, 64
             rx, ry = px - card_w // 2, py - card_h // 2
 
-            # بطاقة اللاعب
             svg += (f'<rect x="{rx}" y="{ry}" width="{card_w}" '
                     f'height="{card_h}" rx="12" fill="#0d1117" '
                     f'stroke="{clr}" stroke-width="{sw}"/>\n')
 
-            # وهج الدور
             if is_current:
                 svg += (
                     f'<rect x="{rx}" y="{ry}" width="{card_w}" '
@@ -446,18 +487,15 @@ class SVGRenderer:
                     f'repeatCount="indefinite"/>\n</rect>\n'
                 )
 
-            # الاسم
             svg += (f'<text x="{px}" y="{py - 6}" '
                     f'text-anchor="middle" fill="white" '
                     f'font-size="13" font-weight="bold">'
                     f'{name}</text>\n')
 
-            # عدد الأحجار
             svg += (f'<text x="{px}" y="{py + 14}" '
                     f'text-anchor="middle" fill="{clr}" '
                     f'font-size="10">{remaining} أحجار</text>\n')
 
-            # ★ باس — بأمان تام ★
             if passes > 0:
                 svg += (f'<text x="{px}" y="{py + 26}" '
                         f'text-anchor="middle" fill="#FF5722" '
@@ -472,10 +510,8 @@ class SVGRenderer:
 
     @staticmethod
     def analysis_chart(all_moves):
-        """━━━ رسم بياني لتحليل الحركات ━━━"""
         if not all_moves:
             return
-
         w, h = 650, 260
         bar_zone = 160
         n = min(len(all_moves), 8)
