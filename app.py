@@ -1,4 +1,5 @@
 """ 🎲 المساعد العبقري للدومينو """
+
 import streamlit as st
 import streamlit.components.v1 as components
 import copy
@@ -16,14 +17,16 @@ st.set_page_config(page_title="🎲 دومينو عبقري", page_icon="🎲", 
 
 st.markdown("""
 <style>
-    .stApp{background:linear-gradient(135deg,#0a0a1a,#111128)}
-    #MainMenu,footer{visibility:hidden}
-    .stButton>button{border-radius:10px!important;font-weight:600!important}
-    .stButton>button:hover{transform:translateY(-2px)!important}
-    [data-testid="stMetric"]{background:rgba(255,255,255,.04);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,.08)}
-    .glow-card{background:linear-gradient(135deg,#1B5E20,#2E7D32);border-radius:14px;padding:18px;color:#fff;text-align:center;margin:10px 0;box-shadow:0 6px 25px rgba(46,125,50,.3)}
+.stApp{background:linear-gradient(135deg,#0a0a1a,#111128)}
+#MainMenu,footer{visibility:hidden}
+.stButton>button{border-radius:10px!important;font-weight:600!important}
+.stButton>button:hover{transform:translateY(-2px)!important}
+[data-testid="stMetric"]{background:rgba(255,255,255,.04);border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,.08)}
+.glow-card{background:linear-gradient(135deg,#1B5E20,#2E7D32);border-radius:14px;padding:18px;color:#fff;text-align:center;margin:10px 0;box-shadow:0 6px 25px rgba(46,125,50,.3)}
+.dir-btn{font-size:1.3em!important;padding:16px!important;border:2px solid rgba(255,255,255,.2)!important}
 </style>
 """, unsafe_allow_html=True)
+
 
 # ─── Session State ───
 DEFAULTS = {
@@ -39,19 +42,86 @@ DEFAULTS = {
     'sims': 1500,
     'time_limit': 3.0,
     'show_xray': True,
+    'all_played': [],
+    'pending_tile': None,
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = copy.deepcopy(v) if isinstance(v, (list, dict)) else v
+
 
 def S(k, v=None):
     if v is not None:
         st.session_state[k] = v
     return st.session_state.get(k)
 
+
 def reset():
     for k, v in DEFAULTS.items():
         st.session_state[k] = copy.deepcopy(v) if isinstance(v, (list, dict)) else v
+
+
+# ─── دوال مساعدة ذكية ───
+def tile_key(t):
+    """مفتاح فريد لكل حجر (ترتيب موحّد)"""
+    if isinstance(t, Tile):
+        return (min(t.a, t.b), max(t.a, t.b))
+    return (min(t[0], t[1]), max(t[0], t[1]))
+
+
+def get_remaining_tiles(gs):
+    """
+    الأحجار المتبقية = كل الأحجار − يدي − الملعوبة على الطاولة
+    هذه هي الأحجار التي يمكن أن تكون عند الخصوم أو الشريك
+    """
+    used = set()
+    for t in gs.my_hand:
+        used.add(tile_key(t))
+    for ab in S('all_played'):
+        used.add(tile_key(ab))
+    return [t for t in ALL_TILES if tile_key(t) not in used]
+
+
+def get_possible_directions(gs, tile):
+    """
+    يحدد في أي اتجاه(ات) يمكن وضع الحجر.
+    ⚠️ يعتمد على gs.board.left و gs.board.right
+    """
+    if gs.board.is_empty:
+        return [Direction.LEFT]
+    dirs = []
+    left_end = gs.board.left
+    right_end = gs.board.right
+    if tile.a == left_end or tile.b == left_end:
+        dirs.append(Direction.LEFT)
+    if tile.a == right_end or tile.b == right_end:
+        dirs.append(Direction.RIGHT)
+    return dirs
+
+
+def track_played(tile):
+    """يسجّل أن هذا الحجر لُعب على الطاولة"""
+    ap = S('all_played')
+    ap.append((tile.a, tile.b))
+    S('all_played', ap)
+
+
+def apply_opponent_move(gs, turn, tile, direction):
+    """يطبّق حركة خصم/شريك بشكل كامل"""
+    m = Move(turn, tile, direction)
+    gs.players[turn].count -= 1
+    gs.players[turn].played.append(tile)
+    gs.apply(m)
+    track_played(tile)
+    S('log', S('log') + [format_move(m)])
+    S('advice', None)
+    S('pending_tile', None)
+    dir_label = "⬅️ يسار" if direction == Direction.LEFT else "➡️ يمين"
+    S('msg', f"✅ {turn.label} لعب [{tile.a}|{tile.b}] {dir_label}")
+    S('msg_type', 'info')
+    if gs.game_over:
+        S('phase', 'over')
+
 
 # ═══ الشريط الجانبي ═══
 with st.sidebar:
@@ -68,13 +138,19 @@ with st.sidebar:
         st.markdown("4 لاعبين • 7 أحجار • الكل يدق = قفل • أول من يخلّص = فوز")
 
 # ═══ العنوان ═══
-st.markdown('<h1 style="text-align:center;background:linear-gradient(90deg,#00d2ff,#3a7bd5);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2.2em">🎲 المساعد العبقري للدومينو</h1>', unsafe_allow_html=True)
+st.markdown(
+    '<h1 style="text-align:center;background:linear-gradient(90deg,#00d2ff,#3a7bd5);'
+    '-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2.2em">'
+    '🎲 المساعد العبقري للدومينو</h1>',
+    unsafe_allow_html=True,
+)
 
 phase = S('phase')
-ALL = sorted(ALL_TILES, key=lambda t: (t.a, t.b))
+ALL_TILES_SORTED = sorted(ALL_TILES, key=lambda t: (t.a, t.b))
+
 
 # ═══════════════════════════════════
-# الإعداد
+# 📝 الإعداد
 # ═══════════════════════════════════
 if phase == 'setup':
     st.markdown("### 📝 اختر أحجارك السبعة")
@@ -82,10 +158,9 @@ if phase == 'setup':
     if hand:
         SVG.hand(hand, title="المختارة")
         st.success(f"✅ {len(hand)}/7")
-
-    for row in range(0, len(ALL), 7):
+    for row in range(0, len(ALL_TILES_SORTED), 7):
         cols = st.columns(7)
-        for i, t in enumerate(ALL[row:row+7]):
+        for i, t in enumerate(ALL_TILES_SORTED[row:row + 7]):
             with cols[i]:
                 sel = t in hand
                 if st.button(
@@ -101,25 +176,25 @@ if phase == 'setup':
                         h.append(t)
                     S('hand_input', h)
                     st.rerun()
-
     if len(hand) == 7:
-        _, c, _ = st.columns([1,2,1])
+        _, c, _ = st.columns([1, 2, 1])
         with c:
             if st.button("🎮 ابدأ!", use_container_width=True, type="primary"):
                 gs = GameState()
                 gs.set_my_hand(hand.copy())
-                S('state', gs); S('phase', 'playing')
+                S('state', gs)
+                S('phase', 'playing')
                 st.rerun()
 
+
 # ═══════════════════════════════════
-# اللعب
+# 🎮 اللعب
 # ═══════════════════════════════════
 elif phase == 'playing':
     gs: GameState = S('state')
     if not gs:
         st.error("خطأ!")
         st.stop()
-
     if S('msg'):
         show_message(S('msg'), S('msg_type'))
 
@@ -134,7 +209,9 @@ elif phase == 'playing':
     st.markdown("---")
     turn = gs.turn
 
-    # ═══ دوري ═══
+    # ═══════════════════════════════════
+    # 🎯 دوري
+    # ═══════════════════════════════════
     if turn == Pos.ME:
         st.markdown("### 🎯 دورك!")
         valid = gs.valid_moves(Pos.ME)
@@ -152,13 +229,13 @@ elif phase == 'playing':
                     advice = advisor.advise()
                     S('advice', advice)
                     st.rerun()
+
         with cr:
             adv = S('advice')
             if adv:
                 bm = adv['best_move']
                 wr = adv['win_rate']
                 exp = adv['explanation']
-                # بطاقة التوصية
                 if bm.is_pass:
                     txt = "دق 🚫"
                 else:
@@ -173,14 +250,10 @@ elif phase == 'playing':
                     <div style="font-size:13px;color:#C8E6C9;margin-top:6px">💡 {exp}</div>
                 </div>
                 ''', unsafe_allow_html=True)
-
-                # أسباب مفصلة
                 if adv['reasons']:
                     with st.expander("📝 لماذا هذه الحركة؟", expanded=True):
                         for r in adv['reasons']:
                             st.markdown(f"- {r}")
-
-                # رسم التحليل
                 if adv['all_moves']:
                     SVG.analysis_chart(adv['all_moves'])
 
@@ -215,7 +288,11 @@ elif phase == 'playing':
             for i, m in enumerate(real):
                 with bcols[i % len(bcols)]:
                     d = "⬅️" if m.direction == Direction.LEFT else "➡️"
-                    is_rec = adv and not adv['best_move'].is_pass and adv['best_move'].tile == m.tile and adv['best_move'].direction == m.direction
+                    is_rec = (
+                        adv and not adv['best_move'].is_pass and
+                        adv['best_move'].tile == m.tile and
+                        adv['best_move'].direction == m.direction
+                    )
                     if st.button(
                         f"{'⭐' if is_rec else ''} [{m.tile.a}|{m.tile.b}] {d}",
                         key=f"m_{i}",
@@ -223,88 +300,158 @@ elif phase == 'playing':
                         type="primary" if is_rec else "secondary",
                     ):
                         gs.apply(m)
+                        track_played(m.tile)
                         S('log', S('log') + [format_move(m)])
                         S('advice', None)
-                        S('msg', f"✅ لعبت {m.tile}"); S('msg_type', 'success')
+                        S('msg', f"✅ لعبت {m.tile}")
+                        S('msg_type', 'success')
                         if gs.game_over:
                             S('phase', 'over')
                         st.rerun()
-
         if any(m.is_pass for m in valid):
             if st.button("🚫 دق", use_container_width=True):
                 gs.apply(Move(Pos.ME, None, None))
                 S('log', S('log') + ["🟢 أنت: دق 🚫"])
                 S('advice', None)
-                S('msg', "🚫 دقيت"); S('msg_type', 'warning')
+                S('msg', "🚫 دقيت")
+                S('msg_type', 'warning')
                 if gs.game_over:
                     S('phase', 'over')
                 st.rerun()
 
-    # ═══ دور غيري ═══
+    # ═══════════════════════════════════
+    # ★ دور الخصم / الشريك — ذكي بالكامل ★
+    # ═══════════════════════════════════
     else:
         name = turn.label
-        st.markdown(f"### {turn.icon} دور: {name}")
-        c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            s1, s2 = st.columns(2)
-            with s1:
-                hi = st.number_input("أول", 0, 6, 0, key=f"h_{turn.value}")
-            with s2:
-                lo = st.number_input("ثاني", 0, 6, 0, key=f"l_{turn.value}")
-        with c2:
-            dr = st.radio("اتجاه", ["⬅️ يسار", "➡️ يمين"], key=f"d_{turn.value}", horizontal=True)
-        with c3:
-            st.write("")
-            if st.button("✅", key=f"ok_{turn.value}", type="primary", use_container_width=True):
-                t = Tile(int(hi), int(lo))
-                d = Direction.LEFT if "يسار" in dr else Direction.RIGHT
-                m = Move(turn, t, d)
-                gs.players[turn].count -= 1
-                gs.players[turn].played.append(t)
-                gs.apply(m)
-                S('log', S('log') + [format_move(m)])
-                S('advice', None)
-                if gs.game_over:
-                    S('phase', 'over')
+        opp_count = gs.players[turn].count
+        st.markdown(f"### {turn.icon} دور: **{name}** ({opp_count} أحجار)")
+
+        # ─── حالة 1: حجر معلّق ينتظر تحديد الاتجاه ───
+        pending = S('pending_tile')
+        if pending is not None:
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#E65100,#FF9800);border-radius:14px;
+            padding:20px;text-align:center;color:#fff;margin:10px 0">
+                <div style="font-size:14px">🤔 الحجر يركب في الجهتين!</div>
+                <div style="font-size:28px;font-weight:bold;margin:8px 0">[{pending.a}|{pending.b}]</div>
+                <div style="font-size:13px">وين حطّه {name}؟</div>
+            </div>
+            """, unsafe_allow_html=True)
+            c1, _, c2 = st.columns([2, 1, 2])
+            with c1:
+                if st.button("⬅️ في اليسار", key="pend_left", use_container_width=True, type="primary"):
+                    apply_opponent_move(gs, turn, pending, Direction.LEFT)
+                    st.rerun()
+            with c2:
+                if st.button("في اليمين ➡️", key="pend_right", use_container_width=True, type="primary"):
+                    apply_opponent_move(gs, turn, pending, Direction.RIGHT)
+                    st.rerun()
+            st.markdown("")
+            if st.button("❌ إلغاء واختيار حجر آخر", key="pend_cancel", use_container_width=True):
+                S('pending_tile', None)
                 st.rerun()
-            if st.button("🚫 باس", key=f"ps_{turn.value}", use_container_width=True):
+
+        # ─── حالة 2: اختيار حجر (العرض الذكي) ───
+        else:
+            remaining = get_remaining_tiles(gs)
+            # فلترة: فقط الأحجار التي تركب على أطراف الطاولة
+            if gs.board.is_empty:
+                playable = remaining
+            else:
+                playable = [t for t in remaining if gs.board.can_play(t)]
+            if playable:
+                playable.sort(key=lambda t: (t.a, t.b), reverse=True)
+                st.caption(
+                    f"👇 اضغط على الحجر الذي لعبه **{name}** "
+                    f"• {len(playable)} حجر متاح من أصل {len(remaining)} متبقي:"
+                )
+                # عرض شبكة الأزرار
+                ncols = min(len(playable), 5)
+                for row_start in range(0, len(playable), ncols):
+                    row_tiles = playable[row_start:row_start + ncols]
+                    cols = st.columns(ncols)
+                    for j, t in enumerate(row_tiles):
+                        with cols[j]:
+                            if st.button(
+                                f"[{t.a}|{t.b}]",
+                                key=f"opp_{t.a}_{t.b}_{turn.value}",
+                                use_container_width=True,
+                            ):
+                                dirs = get_possible_directions(gs, t)
+                                if len(dirs) == 1:
+                                    apply_opponent_move(gs, turn, t, dirs[0])
+                                    st.rerun()
+                                elif len(dirs) >= 2:
+                                    S('pending_tile', t)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ خطأ: الحجر لا يركب!")
+            else:
+                st.info(
+                    "💡 لا توجد أحجار متبقية تركب على أطراف الطاولة الحالية.\n\n"
+                    "يجب على هذا اللاعب التخطي (باس)."
+                )
+
+            # ─── زر الباس ───
+            st.markdown("---")
+            if st.button(
+                f"🚫 {name} دق (باس)",
+                key=f"ps_{turn.value}",
+                type="primary",
+                use_container_width=True,
+            ):
                 gs.apply(Move(turn, None, None))
                 S('log', S('log') + [f"{turn.icon} {turn.label}: دق 🚫"])
                 S('advice', None)
+                S('msg', f"🚫 {name} دق")
+                S('msg_type', 'warning')
                 if gs.game_over:
                     S('phase', 'over')
                 st.rerun()
 
-    # ─── يدي ───
-    st.markdown("---")
-    st.markdown("### 🃏 أحجارك")
-    playable = []
-    if turn == Pos.ME and not gs.board.is_empty:
-        playable = [i for i, t in enumerate(gs.my_hand) if gs.board.can_play(t)]
-    elif turn == Pos.ME and gs.board.is_empty:
-        playable = list(range(len(gs.my_hand)))
-    SVG.hand(gs.my_hand, glowing=playable, title="يدك")
+        # ─── يدي ───
+        st.markdown("---")
+        st.markdown("### 🃏 أحجارك")
+        playable_idx = []
+        if turn == Pos.ME and not gs.board.is_empty:
+            playable_idx = [i for i, t in enumerate(gs.my_hand) if gs.board.can_play(t)]
+        elif turn == Pos.ME and gs.board.is_empty:
+            playable_idx = list(range(len(gs.my_hand)))
+        SVG.hand(gs.my_hand, glowing=playable_idx, title="يدك")
 
-    # ─── السجل ───
-    with st.expander("📜 السجل"):
-        log = S('log')
-        for i, e in enumerate(reversed(log[-20:]), 1):
-            st.markdown(f"`{len(log)-i+1}.` {e}")
+        # ─── السجل ───
+        with st.expander("📜 السجل"):
+            log = S('log')
+            for i, e in enumerate(reversed(log[-20:]), 1):
+                st.markdown(f"`{len(log) - i + 1}.` {e}")
+
 
 # ═══════════════════════════════════
-# النهاية
+# 🏆 النهاية
 # ═══════════════════════════════════
 elif phase == 'over':
     gs = S('state')
     win = gs.winner and gs.winner.is_friend
     if win:
         st.balloons()
-        st.markdown('<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#1B5E20,#4CAF50);border-radius:18px;color:#fff;margin:20px 0"><h1>🏆 مبروك! فريقك فاز!</h1></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#1B5E20,#4CAF50);'
+            'border-radius:18px;color:#fff;margin:20px 0"><h1>🏆 مبروك! فريقك فاز!</h1></div>',
+            unsafe_allow_html=True,
+        )
     elif gs.winner:
-        st.markdown('<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#B71C1C,#E53935);border-radius:18px;color:#fff;margin:20px 0"><h1>😔 خسارة</h1></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#B71C1C,#E53935);'
+            'border-radius:18px;color:#fff;margin:20px 0"><h1>😔 خسارة</h1></div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown('<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#E65100,#FF9800);border-radius:18px;color:#fff;margin:20px 0"><h1>🤝 تعادل</h1></div>', unsafe_allow_html=True)
-
+        st.markdown(
+            '<div style="text-align:center;padding:40px;background:linear-gradient(135deg,#E65100,#FF9800);'
+            'border-radius:18px;color:#fff;margin:20px 0"><h1>🤝 تعادل</h1></div>',
+            unsafe_allow_html=True,
+        )
     st.markdown("### 🎯 الطاولة النهائية")
     SVG.board(gs.board)
     c1, c2 = st.columns(2)
@@ -314,7 +461,6 @@ elif phase == 'over':
     with c2:
         their = gs.players[Pos.RIGHT].total + gs.players[Pos.LEFT].total
         st.metric("🔴 الخصوم", f"{their} نقطة")
-
     if st.button("🔄 لعبة جديدة", use_container_width=True, type="primary"):
         reset()
         st.rerun()
