@@ -1,5 +1,5 @@
 """
-👁️ محرك الرؤية الحاسوبية - النسخة الشاملة والأكثر مرونة (Ultimate Digital Vision)
+👁️ محرك الرؤية الحاسوبية - مدمج بذكاء تصفية السودوكو
 """
 import cv2
 import numpy as np
@@ -15,19 +15,17 @@ class DominoVision:
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         output_img = img.copy()
         
-        # ─── الطبقة 1: عزل الحجارة بذكاء (Otsu's Method) ───
+        # ─── الطبقة 1: عزل الحجارة (نجحت لديك بنسبة 100%) ───
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        # استخدام Otsu ليقوم النظام باكتشاف مستوى اللون الأبيض تلقائياً سواء كانت الصورة مظلمة أو ساطعة
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
         detected_tiles = []
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            # نطاق مرن جداً: من الصور المقصوصة بشدة (500) إلى لقطات الشاشة 4K (500000)
             if 500 < area < 500000:
                 rect = cv2.minAreaRect(cnt)
                 box = cv2.boxPoints(rect)
@@ -38,32 +36,30 @@ class DominoVision:
                 if width == 0 or height == 0: continue
                 
                 aspect_ratio = max(width, height) / min(width, height)
-                
-                # نسبة مرنة لدعم حجارة الألعاب الرقمية التي قد تكون أعرض بقليل
                 if 1.2 < aspect_ratio < 3.2:
                     
-                    # ─── الطبقة 2: تصحيح المنظور ───
+                    # ─── الطبقة 2: تصحيح المنظور (Warping) ───
                     warped_gray = self._warp_perspective(gray, box, width, height)
-                    
-                    # استخدام عتبة تكيفية (Adaptive) لقراءة النقاط بدقة حتى لو كانت رمادية أو بها ظلال
-                    warped_blur = cv2.GaussianBlur(warped_gray, (3, 3), 0)
-                    pip_thresh = cv2.adaptiveThreshold(warped_blur, 255, 
-                                                       cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                                       cv2.THRESH_BINARY_INV, 15, 5)
 
-                    # ─── الطبقة 3: قراءة النقاط ───
-                    pips_a, pips_b = self._count_pips(pip_thresh)
+                    # ─── الطبقة 3: قراءة النقاط (باستخدام تقنيات السودوكو) ───
+                    pips_a, pips_b = self._count_pips(warped_gray)
                     
                     if 0 <= pips_a <= 6 and 0 <= pips_b <= 6:
+                        # فلترة الحجارة الفارغة تماماً التي قد تكون مجرد أزرار في الشاشة
+                        if pips_a == 0 and pips_b == 0 and area < 5000:
+                            continue
+                            
                         detected_tiles.append(Tile(pips_a, pips_b))
                         
-                        # رسم مربع التحديد الأخضر
                         cv2.drawContours(output_img, [box], 0, (0, 255, 0), 3)
                         center_x, center_y = int(rect[0][0]), int(rect[0][1])
-                        # كتابة الرقم بلون أحمر بارز
+                        
+                        # خلفية سوداء للنص ليكون واضحاً
+                        text = f"{pips_a}-{pips_b}"
+                        cv2.rectangle(output_img, (center_x - 40, center_y - 25), (center_x + 40, center_y + 10), (0, 0, 0), -1)
                         cv2.putText(
-                            output_img, f"{pips_a}-{pips_b}", (center_x - 30, center_y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3
+                            output_img, text, (center_x - 35, center_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 3
                         )
 
         output_img = cv2.cvtColor(output_img, cv2.COLOR_BGR2RGB)
@@ -80,28 +76,45 @@ class DominoVision:
         M = cv2.getPerspectiveTransform(rect, dst)
         return cv2.warpPerspective(gray_img, M, (self.TILE_WIDTH, self.TILE_HEIGHT))
 
-    def _count_pips(self, binary_tile):
+    def _count_pips(self, gray_tile):
+        """تقسيم الحجر وتمرير الصور الرمادية للعد"""
         half_h = self.TILE_HEIGHT // 2
-        # قص الحجر بمسافة بادئة (Margin) بسيطة لتجنب قراءة الإطار الخارجي للحجر كنقطة
-        margin = 10
-        top_half = binary_tile[margin:half_h-margin, margin:self.TILE_WIDTH-margin]
-        bottom_half = binary_tile[half_h+margin:self.TILE_HEIGHT-margin, margin:self.TILE_WIDTH-margin]
+        top_half = gray_tile[0:half_h, 0:self.TILE_WIDTH]
+        bottom_half = gray_tile[half_h:self.TILE_HEIGHT, 0:self.TILE_WIDTH]
+        
         return self._count_dots_in_half(top_half), self._count_dots_in_half(bottom_half)
 
-    def _count_dots_in_half(self, half_img):
-        # البحث في كل الطبقات لضمان التقاط النقاط
-        contours, _ = cv2.findContours(half_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    def _count_dots_in_half(self, gray_half):
+        """العد باستخدام تقنيات تنظيف السودوكو"""
+        h_cell, w_cell = gray_half.shape
+        
+        # 1. Multi-Thresholding: استخدام Otsu لقلب الألوان بدقة (النقاط السوداء تصبح بيضاء)
+        _, binary = cv2.threshold(gray_half, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+        
+        # 2. إزالة التشويش النقطي باستخدام Morphological Opening (من سكريبت السودوكو الخاص بك)
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        
+        # البحث عن الكنتورات
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
         dot_count = 0
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            # مساحة النقطة الواحدة (Pip) داخل المربع الصغير
-            if 20 < area < 1500:
-                # التحقق الهندسي: هل هذا الشكل عبارة عن دائرة حقاً أم خط عشوائي؟
-                perimeter = cv2.arcLength(cnt, True)
-                if perimeter > 0:
-                    circularity = 4 * np.pi * (area / (perimeter * perimeter))
-                    if circularity > 0.45:  # إذا كان الشكل دائرياً بنسبة 45% فما فوق فهو نقطة
-                        dot_count += 1
+        for c in contours:
+            area = cv2.contourArea(c)
+            x, y, w, h = cv2.boundingRect(c)
+            
+            # 3. استبعاد الكنتورات التي تلامس حواف الخلية (بقايا خط المنتصف الأسود وإطار الحجر) - تقنية السودوكو!
+            margin = 5
+            if x < margin or y < margin or (x + w) > w_cell - margin or (y + h) > h_cell - margin:
+                continue
+                
+            # 4. فلترة المساحة والأبعاد
+            if 15 < area < (h_cell * w_cell * 0.4):
+                aspect_ratio = w / float(h)
+                # النقطة يجب أن تكون شبه دائرية (نسبة الطول للعرض قريبة من 1)
+                if 0.5 < aspect_ratio < 2.0: 
+                    dot_count += 1
+                    
         return min(dot_count, 6)
 
     def _order_points(self, pts):
