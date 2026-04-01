@@ -1,562 +1,187 @@
-"""
-🎨 محرك رسم SVG المتكامل
-────────────────────────
-• حماية كاملة من كل AttributeError
-• الأحجار متّصلة بصرياً كسلسلة
-• الدبل عمودي
-"""
-
+""" 🎨 محرك SVG يعمل في Streamlit """
 import streamlit.components.v1 as components
 from typing import List, Optional
+from game_engine.tiles import Tile, Board, Direction
+from game_engine.state import GameState, Pos
 
-PIP_POSITIONS = {
+# مواقع نقاط الدومينو
+PIPS = {
     0: [],
-    1: [(0.5, 0.5)],
-    2: [(0.25, 0.25), (0.75, 0.75)],
-    3: [(0.25, 0.25), (0.5, 0.5), (0.75, 0.75)],
-    4: [(0.25, 0.25), (0.25, 0.75), (0.75, 0.25), (0.75, 0.75)],
-    5: [(0.25, 0.25), (0.25, 0.75), (0.5, 0.5),
-        (0.75, 0.25), (0.75, 0.75)],
-    6: [(0.25, 0.25), (0.25, 0.5), (0.25, 0.75),
-        (0.75, 0.25), (0.75, 0.5), (0.75, 0.75)],
+    1: [(50, 50)],
+    2: [(25, 75), (75, 25)],
+    3: [(25, 75), (50, 50), (75, 25)],
+    4: [(25, 25), (25, 75), (75, 25), (75, 75)],
+    5: [(25, 25), (25, 75), (50, 50), (75, 25), (75, 75)],
+    6: [(25, 25), (25, 50), (25, 75), (75, 25), (75, 50), (75, 75)],
 }
 
-
 class SVGRenderer:
-    TW = 100
-    TH = 50
-    HW = TW // 2
-    PR = 6
-    HAND_GAP = 8
-    CHAIN_GAP = 2
-
-    # ════════════════════════════════════
-    #  أدوات مساعدة
-    # ════════════════════════════════════
+    W = 110     # عرض الحجر
+    H = 55      # ارتفاع الحجر
+    R = 6       # نصف قطر النقطة
+    GAP = 10    # فراغ بين الأحجار
 
     @staticmethod
-    def _html(svg_code: str, height: int = 200):
-        html = (
-            '<div style="display:flex;justify-content:center;'
-            'width:100%;overflow-x:auto;padding:10px 0;">'
-            f'{svg_code}</div>'
-        )
-        components.html(html, height=height, scrolling=True)
+    def _show(svg: str, h: int):
+        """عرض SVG في Streamlit"""
+        html = f'<div style="display:flex;justify-content:center;overflow-x:auto;padding:8px 0">{svg}</div>'
+        components.html(html, height=h, scrolling=True)
 
-    @staticmethod
-    def _safe_player(p):
-        """استخراج بيانات اللاعب بأمان"""
-        count = getattr(p, 'count', None)
-        if count is None:
-            count = getattr(p, 'tile_count', 7)
-
-        passes = 0
-        if hasattr(p, 'passed_on'):
-            passed_on = getattr(p, 'passed_on', set())
-            if isinstance(passed_on, set):
-                passes = len(passed_on) // 2 if passed_on else 0
-            else:
-                passes = 0
-        elif hasattr(p, 'passes'):
-            try:
-                passes = p.passes
-            except Exception:
-                passes = 0
-
-        total = 0
-        try:
-            total = p.total
-        except Exception:
-            total = getattr(p, 'score', 0)
-
-        return {'count': count, 'passes': passes, 'total': total}
-
-    # ════════════════════════════════════
-    #  ★★★ استخراج أحجار الطاولة بأمان ★★★
-    # ════════════════════════════════════
-
-    @staticmethod
-    def _get_board_tiles(board):
-        """
-        يستخرج قائمة الأحجار الملعوبة من Board
-        يجرّب كل الأسماء المحتملة ويُرجع list[Tile]
-        """
-        # ── 1) played_tiles ──
-        tiles = getattr(board, 'played_tiles', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 2) chain ──
-        tiles = getattr(board, 'chain', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 3) _chain (خاص) ──
-        tiles = getattr(board, '_chain', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 4) tiles ──
-        tiles = getattr(board, 'tiles', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 5) _tiles ──
-        tiles = getattr(board, '_tiles', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 6) tiles_on_table ──
-        tiles = getattr(board, 'tiles_on_table', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 7) history ──
-        tiles = getattr(board, 'history', None)
-        if tiles is not None:
-            return SVGRenderer._normalize_tiles(tiles)
-
-        # ── 8) البحث في كل الخصائص ──
-        for attr_name in dir(board):
-            if attr_name.startswith('__'):
-                continue
-            try:
-                val = getattr(board, attr_name)
-                if isinstance(val, (list, tuple)) and len(val) > 0:
-                    normalized = SVGRenderer._normalize_tiles(val)
-                    if normalized:
-                        return normalized
-            except Exception:
-                continue
-
-        return []
-
-    @staticmethod
-    def _normalize_tiles(tiles):
-        """
-        يحوّل أي شكل من أشكال القائمة إلى list[Tile]
-        يدعم: list[Tile], list[(Tile,Dir)], set[Tile], deque, etc.
-        """
-        result = []
-        try:
-            items = list(tiles)
-        except Exception:
-            return []
-
-        for item in items:
-            if item is None:
-                continue
-            # ── (Tile, Direction) tuple ──
-            if isinstance(item, (tuple, list)):
-                tile = item[0] if len(item) > 0 else None
-                if tile is not None and hasattr(tile, 'a') and hasattr(tile, 'b'):
-                    result.append(tile)
-            # ── Tile مباشر ──
-            elif hasattr(item, 'a') and hasattr(item, 'b'):
-                result.append(item)
-
-        return result
-
-    # ════════════════════════════════════
-    #  رسم النقاط
-    # ════════════════════════════════════
-
-    @staticmethod
-    def _draw_pips(count, ox, oy, aw, ah, is_double=False):
-        pts = PIP_POSITIONS.get(count, [])
-        clr = "#CC0000" if is_double else "#1a1a2e"
-        pad = 7
+    @classmethod
+    def _dots(cls, val, ox, oy, w, h, dbl=False):
+        """رسم النقاط"""
+        color = "#CC0000" if dbl else "#1a1a1a"
         s = ""
-        for px, py in pts:
-            cx = ox + pad + px * (aw - 2 * pad)
-            cy = oy + pad + py * (ah - 2 * pad)
-            s += (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" '
-                  f'r="{SVGRenderer.PR}" fill="{clr}"/>\n')
+        for px, py in PIPS.get(val, []):
+            cx = ox + 8 + (px / 100) * (w - 16)
+            cy = oy + 6 + (py / 100) * (h - 12)
+            s += f'<circle cx="{cx:.0f}" cy="{cy:.0f}" r="{cls.R}" fill="{color}"/>'
         return s
 
-    # ════════════════════════════════════
-    #  رسم حجر اليد
-    # ════════════════════════════════════
-
-    @staticmethod
-    def _draw_tile(tile, x=0, y=0, hl=False, glow=False):
-        TW, TH, HW = SVGRenderer.TW, SVGRenderer.TH, SVGRenderer.HW
-
+    @classmethod
+    def tile(cls, t, x=0, y=0, glow=False, label=""):
+        """رسم حجر واحد"""
+        bg = "#C8E6C9" if glow else "#FFF"
+        border = "#2E7D32" if glow else "#34495E"
+        bw = 3 if glow else 1.5
+        hw = cls.W // 2
+        s = f'<g transform="translate({x},{y})">'
+        # ظل
+        s += f'<rect x="2" y="2" width="{cls.W}" height="{cls.H}" rx="7" fill="rgba(0,0,0,.12)"/>'
+        # جسم
+        s += f'<rect width="{cls.W}" height="{cls.H}" rx="7" fill="{bg}" stroke="{border}" stroke-width="{bw}"/>'
+        # فاصل
+        s += f'<line x1="{hw}" y1="4" x2="{hw}" y2="{cls.H-4}" stroke="#B0BEC5" stroke-width="1.5" stroke-dasharray="3,2"/>'
+        # نقاط
+        s += cls._dots(t.a, 0, 0, hw, cls.H, t.is_double)
+        s += cls._dots(t.b, hw, 0, hw, cls.H, t.is_double)
+        # تسمية
+        if label:
+            s += f'<text x="{cls.W//2}" y="{cls.H+15}" text-anchor="middle" font-size="12" fill="#aaa" font-weight="bold">{label}</text>'
+        # توهج
         if glow:
-            fill, stroke, sw = "#E8F5E9", "#4CAF50", 3
-        elif hl:
-            fill, stroke, sw = "#FFF8E1", "#FF9800", 3
-        else:
-            fill, stroke, sw = "#FFFFFF", "#455A64", 2
-
-        is_dbl = tile.a == tile.b
-        s = f'<g transform="translate({x},{y})">\n'
-        s += (f'<rect x="3" y="3" width="{TW}" height="{TH}" '
-              f'rx="8" fill="rgba(0,0,0,0.15)"/>\n')
-        s += (f'<rect width="{TW}" height="{TH}" rx="8" '
-              f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>\n')
-        s += (f'<line x1="{HW}" y1="5" x2="{HW}" y2="{TH-5}" '
-              f'stroke="#90A4AE" stroke-width="1.5" '
-              f'stroke-dasharray="3,2"/>\n')
-        s += SVGRenderer._draw_pips(tile.a, 0, 0, HW, TH, is_dbl)
-        s += SVGRenderer._draw_pips(tile.b, HW, 0, HW, TH, is_dbl)
-        if glow:
-            s += (f'<rect width="{TW}" height="{TH}" rx="8" '
-                  f'fill="none" stroke="#66BB6A" stroke-width="2">\n'
-                  f'  <animate attributeName="opacity" '
-                  f'values="0.3;0.9;0.3" dur="1.4s" '
-                  f'repeatCount="indefinite"/>\n</rect>\n')
-        s += '</g>\n'
+            s += f'<rect width="{cls.W}" height="{cls.H}" rx="7" fill="none" stroke="#4CAF50" stroke-width="2"><animate attributeName="opacity" values="1;.3;1" dur="2s" repeatCount="indefinite"/></rect>'
+        s += '</g>'
         return s
 
-    # ════════════════════════════════════
-    #  رسم حجر في السلسلة
-    # ════════════════════════════════════
-
-    @staticmethod
-    def _draw_chain_tile(tile, x, y, vertical=False):
-        TW, TH, HW = SVGRenderer.TW, SVGRenderer.TH, SVGRenderer.HW
-        fill, stroke, rx = "#FFFFF0", "#37474F", 4
-
-        if vertical:
-            vw, vh = TH, TW
-            half = vh // 2
-            s = f'<g transform="translate({x},{y})">\n'
-            s += (f'<rect x="1" y="1" width="{vw}" height="{vh}" '
-                  f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
-            s += (f'<rect width="{vw}" height="{vh}" rx="{rx}" '
-                  f'fill="{fill}" stroke="{stroke}" '
-                  f'stroke-width="1.5"/>\n')
-            s += (f'<line x1="4" y1="{half}" x2="{vw-4}" '
-                  f'y2="{half}" stroke="#90A4AE" '
-                  f'stroke-width="1.5" stroke-dasharray="3,2"/>\n')
-            s += SVGRenderer._draw_pips(tile.a, 0, 0, vw, half, True)
-            s += SVGRenderer._draw_pips(tile.b, 0, half, vw, half, True)
-            s += '</g>\n'
-        else:
-            s = f'<g transform="translate({x},{y})">\n'
-            s += (f'<rect x="1" y="1" width="{TW}" height="{TH}" '
-                  f'rx="{rx}" fill="rgba(0,0,0,0.10)"/>\n')
-            s += (f'<rect width="{TW}" height="{TH}" rx="{rx}" '
-                  f'fill="{fill}" stroke="{stroke}" '
-                  f'stroke-width="1.5"/>\n')
-            s += (f'<line x1="{HW}" y1="4" x2="{HW}" y2="{TH-4}" '
-                  f'stroke="#90A4AE" stroke-width="1.5" '
-                  f'stroke-dasharray="3,2"/>\n')
-            s += SVGRenderer._draw_pips(tile.a, 0, 0, HW, TH, False)
-            s += SVGRenderer._draw_pips(tile.b, HW, 0, HW, TH, False)
-            s += '</g>\n'
-        return s
-
-    @staticmethod
-    def _draw_connector(x, y):
-        return (
-            f'<circle cx="{x}" cy="{y}" r="4" '
-            f'fill="#8D6E63" stroke="#5D4037" stroke-width="0.8" '
-            f'opacity="0.7"/>\n'
-        )
-
-    # ════════════════════════════════════
-    #  الدوال العامة (API)
-    # ════════════════════════════════════
-
-    @staticmethod
-    def hand(tiles, glowing=None, title="يدك"):
-        if not tiles:
-            return
+    @classmethod
+    def hand(cls, tiles, glowing=None, title="يدك"):
+        """رسم يد كاملة"""
         glowing = glowing or []
-        TW, TH = SVGRenderer.TW, SVGRenderer.TH
-        GAP = SVGRenderer.HAND_GAP
         n = len(tiles)
-        svg_w = n * (TW + GAP) + 40
-        svg_h = TH + 50
-
-        svg = (f'<svg viewBox="0 0 {svg_w} {svg_h}" '
-               f'width="{svg_w}" height="{svg_h}">\n')
-        svg += (f'<rect width="{svg_w}" height="{svg_h}" rx="12" '
-                f'fill="rgba(255,255,255,0.03)" '
-                f'stroke="rgba(255,255,255,0.08)" '
-                f'stroke-width="1"/>\n')
-        svg += (f'<text x="{svg_w//2}" y="18" text-anchor="middle" '
-                f'font-size="12" fill="#888">{title}</text>\n')
-
-        for i, tile in enumerate(tiles):
-            x = 20 + i * (TW + GAP)
-            svg += SVGRenderer._draw_tile(
-                tile, x, 25, glow=(i in glowing)
-            )
-        svg += '</svg>'
-        SVGRenderer._html(svg, svg_h + 10)
-
-    # ─────────────────────────────────
-    #  ★★★ الطاولة ★★★
-    # ─────────────────────────────────
-
-    @staticmethod
-    def board(board, w=900, h=180):
-        TW, TH = SVGRenderer.TW, SVGRenderer.TH
-        GAP = SVGRenderer.CHAIN_GAP
-
-        # ── طاولة فارغة ──
-        is_empty = getattr(board, 'is_empty', True)
-        try:
-            is_empty = board.is_empty
-        except Exception:
-            is_empty = True
-
-        if is_empty:
-            svg = (
-                f'<svg width="{w}" height="{h}">'
-                f'<rect width="100%" height="100%" rx="16" '
-                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>'
-                f'<text x="50%" y="50%" text-anchor="middle" '
-                f'fill="white" font-size="15" opacity="0.4">'
-                f'🎲 الطاولة فارغة — ابدأ اللعب</text></svg>'
-            )
-            SVGRenderer._html(svg, h)
-            return
-
-        # ── ★ استخراج الأحجار بأمان ★ ──
-        played_tiles = SVGRenderer._get_board_tiles(board)
-        n = len(played_tiles)
-
         if n == 0:
-            svg = (
-                f'<svg width="{w}" height="{h}">'
-                f'<rect width="100%" height="100%" rx="16" '
-                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>'
-                f'<text x="50%" y="50%" text-anchor="middle" '
-                f'fill="white" font-size="15" opacity="0.4">'
-                f'🎲 الطاولة فارغة</text></svg>'
-            )
-            SVGRenderer._html(svg, h)
+            svg = f'<svg width="350" height="70" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="340" height="60" rx="10" fill="none" stroke="#4CAF50" stroke-dasharray="8,4" stroke-width="2"/><text x="175" y="42" text-anchor="middle" font-size="16" fill="#4CAF50">✨ دومينو!</text></svg>'
+            cls._show(svg, 80)
             return
-
-        # ── بناء السلسلة ──
-        chain = []
-        total_chain_w = 0
-        has_double = False
-
-        for tile in played_tiles:
-            is_dbl = (tile.a == tile.b)
-            tw = TH if is_dbl else TW
-            chain.append((tile, is_dbl, tw))
-            total_chain_w += tw + GAP
-            if is_dbl:
-                has_double = True
-
-        total_chain_w -= GAP
-        if total_chain_w < 0:
-            total_chain_w = 0
-
-        board_h = max(h, 220) if has_double else h
-        full_w = max(w, total_chain_w + 120)
-        mid_y = board_h // 2
-
-        svg = (f'<svg viewBox="0 0 {full_w} {board_h}" '
-               f'width="{full_w}" height="{board_h}">\n')
-
-        svg += (
-            '<defs>\n'
-            '  <filter id="chainShadow" x="-2%" y="-2%" '
-            'width="104%" height="110%">\n'
-            '    <feDropShadow dx="3" dy="4" stdDeviation="3" '
-            'flood-opacity="0.25"/>\n'
-            '  </filter>\n'
-            '</defs>\n'
-        )
-
-        # خلفية
-        svg += (f'<rect width="{full_w}" height="{board_h}" rx="16" '
-                f'fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/>\n')
-        svg += (f'<line x1="30" y1="{mid_y}" '
-                f'x2="{full_w-30}" y2="{mid_y}" '
-                f'stroke="#2E7D32" stroke-width="1" opacity="0.2"/>\n')
-
-        # ── رسم السلسلة ──
-        start_x = max(30, (full_w - total_chain_w) // 2)
-        svg += '<g filter="url(#chainShadow)">\n'
-
-        cx = start_x
-        positions = []
-
-        for tile, is_dbl, tw in chain:
-            if is_dbl:
-                ty = mid_y - TW // 2
-                svg += SVGRenderer._draw_chain_tile(
-                    tile, cx, ty, vertical=True
-                )
-            else:
-                ty = mid_y - TH // 2
-                svg += SVGRenderer._draw_chain_tile(
-                    tile, cx, ty, vertical=False
-                )
-            positions.append((cx, tw))
-            cx += tw + GAP
-
-        svg += '</g>\n'
-
-        # نقاط اتصال
-        for i in range(len(positions) - 1):
-            px, pw = positions[i]
-            jx = px + pw + GAP // 2
-            svg += SVGRenderer._draw_connector(jx, mid_y)
-
-        # ── مؤشرات الأطراف ──
-        left_end = getattr(board, 'left', "?")
-        right_end = getattr(board, 'right', "?")
-        if left_end is None:
-            left_end = "?"
-        if right_end is None:
-            right_end = "?"
-
-        svg += (f'<rect x="8" y="{board_h-40}" width="62" '
-                f'height="28" rx="6" fill="rgba(0,0,0,0.35)"/>\n')
-        svg += (f'<text x="39" y="{board_h-21}" '
-                f'text-anchor="middle" fill="#A5D6A7" '
-                f'font-size="13" font-weight="bold">'
-                f'⬅ {left_end}</text>\n')
-
-        svg += (f'<rect x="{full_w-70}" y="{board_h-40}" '
-                f'width="62" height="28" rx="6" '
-                f'fill="rgba(0,0,0,0.35)"/>\n')
-        svg += (f'<text x="{full_w-39}" y="{board_h-21}" '
-                f'text-anchor="middle" fill="#A5D6A7" '
-                f'font-size="13" font-weight="bold">'
-                f'{right_end} ➡</text>\n')
-
-        svg += (f'<text x="{full_w//2}" y="20" '
-                f'text-anchor="middle" fill="#66BB6A" '
-                f'font-size="11" opacity="0.7">'
-                f'🎴 {n} حجر على الطاولة</text>\n')
-
+        tw = n * (cls.W + cls.GAP) + 30
+        th = cls.H + 55
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {tw} {th}" width="{tw}" height="{th}">'
+        svg += f'<text x="{tw//2}" y="15" text-anchor="middle" font-size="13" fill="#ccc" font-weight="bold">🃏 {title} ({n})</text>'
+        for i, t in enumerate(tiles):
+            x = 15 + i * (cls.W + cls.GAP)
+            svg += cls.tile(t, x, 22, glow=(i in glowing), label=f"({i+1})")
+        pts = sum(t.total for t in tiles)
+        svg += f'<text x="{tw//2}" y="{th-2}" text-anchor="middle" font-size="11" fill="#888">مجموع: {pts}</text>'
         svg += '</svg>'
-        SVGRenderer._html(svg, board_h + 20)
+        cls._show(svg, th + 5)
 
-    # ─────────────────────────────────
-    #  خريطة اللاعبين
-    # ─────────────────────────────────
+    @classmethod
+    def board(cls, brd, w=850, h=170):
+        """رسم الطاولة"""
+        if brd.is_empty:
+            svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+            svg += f'<rect width="{w}" height="{h}" rx="12" fill="#1B5E20"/>'
+            svg += f'<rect x="3" y="3" width="{w-6}" height="{h-6}" rx="10" fill="none" stroke="#4CAF50" stroke-width="2" stroke-dasharray="10,5"/>'
+            svg += f'<text x="{w//2}" y="{h//2-5}" text-anchor="middle" font-size="20" fill="rgba(255,255,255,.7)">🎲</text>'
+            svg += f'<text x="{w//2}" y="{h//2+20}" text-anchor="middle" font-size="15" fill="rgba(255,255,255,.5)">الطاولة فارغة</text>'
+            svg += '</svg>'
+            cls._show(svg, h + 10)
+            return
+        tiles = brd.tiles_on_table
+        n = len(tiles)
+        ttw = cls.W + cls.GAP
+        aw = max(w, n * ttw + 100)
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {aw} {h}" width="{aw}" height="{h}">'
+        svg += f'<rect width="{aw}" height="{h}" rx="12" fill="#1B5E20"/>'
+        svg += f'<rect x="2" y="2" width="{aw-4}" height="{h-4}" rx="11" fill="none" stroke="#2E7D32" stroke-width="1.5"/>'
+        sx = max(50, (aw - n * ttw) // 2)
+        ty = (h - cls.H) // 2
+        for i, t in enumerate(tiles):
+            svg += cls.tile(t, sx + i * ttw, ty)
+        # أطراف
+        ey = h // 2 - 16
+        svg += f'<g transform="translate(6,{ey})"><rect width="34" height="32" rx="7" fill="rgba(255,255,255,.2)"/><text x="17" y="23" text-anchor="middle" font-size="18" font-weight="bold" fill="#fff">{brd.left}</text></g>'
+        svg += f'<g transform="translate({aw-40},{ey})"><rect width="34" height="32" rx="7" fill="rgba(255,255,255,.2)"/><text x="17" y="23" text-anchor="middle" font-size="18" font-weight="bold" fill="#fff">{brd.right}</text></g>'
+        svg += f'<text x="23" y="{h-6}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.4)">⬅️ يسار</text>'
+        svg += f'<text x="{aw-23}" y="{h-6}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,.4)">يمين ➡️</text>'
+        svg += '</svg>'
+        cls._show(svg, h + 10)
 
-    @staticmethod
-    def players(state, w=700, h=400):
-        from game_engine.state import Pos
-
+    @classmethod
+    def players(cls, state, w=680, h=400):
+        """خريطة اللاعبين"""
         cx, cy = w // 2, h // 2
-        svg = (f'<svg viewBox="0 0 {w} {h}" '
-               f'width="{w}" height="{h}">\n')
-
-        svg += (f'<ellipse cx="{cx}" cy="{cy}" '
-                f'rx="{w//3}" ry="{h//4}" fill="#1B5E20" '
-                f'stroke="#2E7D32" stroke-width="2" '
-                f'opacity="0.6"/>\n')
-
-        layout = {
-            Pos.ME:      (cx, h - 55,  "🟢 أنت",       "#4CAF50"),
-            Pos.RIGHT:   (w - 95, cy,  "🔴 خصم يمين",  "#F44336"),
-            Pos.PARTNER: (cx, 55,      "🔵 شريكك",     "#2196F3"),
-            Pos.LEFT:    (95, cy,      "🟠 خصم يسار",  "#FF9800"),
+        xy = {
+            Pos.ME: (cx, h - 45),
+            Pos.PARTNER: (cx, 45),
+            Pos.RIGHT: (75, cy),
+            Pos.LEFT: (w - 75, cy),
         }
-
-        for pos, (px, py, name, clr) in layout.items():
+        clr = {
+            Pos.ME: "#4CAF50",
+            Pos.PARTNER: "#2196F3",
+            Pos.RIGHT: "#F44336",
+            Pos.LEFT: "#FF9800",
+        }
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">'
+        svg += f'<ellipse cx="{cx}" cy="{cy}" rx="{w//3}" ry="{h//4}" fill="#1B5E20" stroke="#2E7D32" stroke-width="2"/>'
+        svg += f'<text x="{cx}" y="{cy+5}" text-anchor="middle" font-size="14" fill="rgba(255,255,255,.4)">🎲 الطاولة</text>'
+        for pos in Pos:
             p = state.players[pos]
-            info = SVGRenderer._safe_player(p)
-            remaining = info['count']
-            passes = info['passes']
-
-            is_current = False
-            try:
-                is_current = (pos == state.turn)
-            except Exception:
-                pass
-
-            sw = "3" if is_current else "1.5"
-            card_w, card_h = 130, 64
-            rx, ry = px - card_w // 2, py - card_h // 2
-
-            svg += (f'<rect x="{rx}" y="{ry}" width="{card_w}" '
-                    f'height="{card_h}" rx="12" fill="#0d1117" '
-                    f'stroke="{clr}" stroke-width="{sw}"/>\n')
-
-            if is_current:
-                svg += (
-                    f'<rect x="{rx}" y="{ry}" width="{card_w}" '
-                    f'height="{card_h}" rx="12" fill="none" '
-                    f'stroke="{clr}" stroke-width="3">\n'
-                    f'  <animate attributeName="opacity" '
-                    f'values="0.2;0.8;0.2" dur="1.5s" '
-                    f'repeatCount="indefinite"/>\n</rect>\n'
-                )
-
-            svg += (f'<text x="{px}" y="{py - 6}" '
-                    f'text-anchor="middle" fill="white" '
-                    f'font-size="13" font-weight="bold">'
-                    f'{name}</text>\n')
-
-            svg += (f'<text x="{px}" y="{py + 14}" '
-                    f'text-anchor="middle" fill="{clr}" '
-                    f'font-size="10">{remaining} أحجار</text>\n')
-
-            if passes > 0:
-                svg += (f'<text x="{px}" y="{py + 26}" '
-                        f'text-anchor="middle" fill="#FF5722" '
-                        f'font-size="9">🚫 دق {passes}×</text>\n')
-
+            px, py = xy[pos]
+            c = clr[pos]
+            it = pos == state.turn
+            bw_v, bh_v = 125, 72
+            bx, by = px - bw_v // 2, py - bh_v // 2
+            svg += f'<rect x="{bx}" y="{by}" width="{bw_v}" height="{bh_v}" rx="10" fill="#111128" stroke="{c}" stroke-width="{"3" if it else "1.5"}"/>'
+            svg += f'<rect x="{bx}" y="{by}" width="{bw_v}" height="22" rx="10" fill="{c}"/>'
+            svg += f'<rect x="{bx}" y="{by+13}" width="{bw_v}" height="9" fill="{c}"/>'
+            svg += f'<text x="{px}" y="{by+16}" text-anchor="middle" font-size="11" font-weight="bold" fill="white">{pos.label}</text>'
+            tc = len(p.hand) if pos == Pos.ME else p.count
+            svg += f'<text x="{px}" y="{by+40}" text-anchor="middle" font-size="11" fill="#ddd">أحجار: {tc}</text>'
+            svg += f'<text x="{px}" y="{by+55}" text-anchor="middle" font-size="10">{"🀫" * min(tc, 7)}</text>'
+            if p.passed_on:
+                ps = ",".join(str(v) for v in sorted(p.passed_on))
+                svg += f'<text x="{px}" y="{by+68}" text-anchor="middle" font-size="9" fill="#EF5350">🚫 {ps}</text>'
+            if it:
+                svg += f'<circle cx="{bx+bw_v-7}" cy="{by+7}" r="5" fill="#4CAF50"><animate attributeName="r" values="5;2;5" dur="1.5s" repeatCount="indefinite"/></circle>'
         svg += '</svg>'
-        SVGRenderer._html(svg, h + 10)
+        cls._show(svg, h + 5)
 
-    # ─────────────────────────────────
-    #  تحليل الحركات
-    # ─────────────────────────────────
-
-    @staticmethod
-    def analysis_chart(all_moves):
-        if not all_moves:
+    @classmethod
+    def analysis_chart(cls, moves_data, w=580):
+        """رسم بياني للتحليل"""
+        if not moves_data:
             return
-        w, h = 650, 260
-        bar_zone = 160
-        n = min(len(all_moves), 8)
-        bar_w = max(35, (w - 120) // n - 12)
-
-        max_wr = max(
-            (m.get('win_rate', 0) for m in all_moves), default=1
-        )
-        if max_wr <= 0:
-            max_wr = 1
-
-        svg = (f'<svg viewBox="0 0 {w} {h}" '
-               f'width="{w}" height="{h}">\n')
-        svg += (f'<rect width="{w}" height="{h}" rx="14" '
-                f'fill="#0d1117" stroke="#222" stroke-width="1"/>\n')
-        svg += (f'<text x="{w//2}" y="24" text-anchor="middle" '
-                f'fill="#aaa" font-size="13" font-weight="bold">'
-                f'📊 تحليل الحركات المتاحة</text>\n')
-
-        for i, md in enumerate(all_moves[:n]):
-            wr = md.get('win_rate', 0)
-            bar_h = max(6, (wr / max_wr) * bar_zone)
-            x = 70 + i * (bar_w + 12)
-            y = h - 55 - bar_h
-
-            if wr >= 0.6:
-                color = "#4CAF50"
-            elif wr >= 0.4:
-                color = "#FFC107"
-            else:
-                color = "#F44336"
-
-            svg += (f'<rect x="{x}" y="{y}" width="{bar_w}" '
-                    f'height="{bar_h}" rx="4" fill="{color}" '
-                    f'opacity="0.85"/>\n')
-            svg += (f'<text x="{x + bar_w//2}" y="{y - 6}" '
-                    f'text-anchor="middle" fill="white" '
-                    f'font-size="10" font-weight="bold">'
-                    f'{wr:.0%}</text>\n')
-
-            mv = md.get('move', md.get('tile', '?'))
-            label = str(mv)[:8]
-            svg += (f'<text x="{x + bar_w//2}" y="{h - 35}" '
-                    f'text-anchor="middle" fill="#888" '
-                    f'font-size="9">{label}</text>\n')
-
+        n = min(len(moves_data), 6)
+        th = n * 46 + 45
+        colors = ["#4CAF50", "#8BC34A", "#FFC107", "#FF9800", "#FF5722", "#9E9E9E"]
+        icons = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣"]
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {th}" width="{w}" height="{th}">'
+        svg += f'<text x="{w//2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#ddd">📊 تحليل الخيارات</text>'
+        for i, md in enumerate(moves_data[:n]):
+            y = 32 + i * 46
+            wp = md.get('win_pct', 0)
+            bw = max(8, int((w - 190) * wp))
+            c = colors[i] if i < len(colors) else "#666"
+            ic = icons[i] if i < len(icons) else f"{i+1}."
+            svg += f'<g transform="translate(12,{y})">'
+            svg += f'<text x="0" y="20" font-size="16">{ic}</text>'
+            svg += f'<text x="30" y="13" font-size="10" fill="#aaa">{md.get("move","")}</text>'
+            svg += f'<rect x="30" y="18" width="{w-190}" height="13" rx="6" fill="#1a1a2e"/>'
+            svg += f'<rect x="30" y="18" width="{bw}" height="13" rx="6" fill="{c}" opacity=".85"/>'
+            svg += f'<text x="{w-148}" y="29" font-size="13" font-weight="bold" fill="#eee">{md.get("win_rate","")}</text>'
+            svg += f'<text x="{w-82}" y="29" font-size="9" fill="#888">{md.get("confidence","")}</text>'
+            svg += '</g>'
         svg += '</svg>'
-        SVGRenderer._html(svg, h + 10)
+        cls._show(svg, th + 5)

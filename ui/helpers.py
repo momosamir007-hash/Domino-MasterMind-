@@ -1,40 +1,20 @@
-"""🔧 دوال مساعدة للواجهة"""
-
+"""أدوات واجهة بسيطة"""
 import streamlit as st
+from game_engine.state import Move, Pos
 from game_engine.tiles import Direction
 
+def show_message(msg, mtype="info"):
+    {
+        "info": st.info,
+        "success": st.success,
+        "warning": st.warning,
+        "error": st.error
+    }.get(mtype, st.info)(msg)
 
-def show_message(msg: str, msg_type: str = "info"):
-    """عرض رسالة ملونة"""
-    if msg_type == "success":
-        st.success(msg)
-    elif msg_type == "warning":
-        st.warning(msg)
-    elif msg_type == "error":
-        st.error(msg)
-    else:
-        st.info(msg)
-
-
-def format_move(move) -> str:
-    """
-    تنسيق حركة للسجل
-    ★ يدعم move.who و move.pos (توافقية) ★
-    """
-    # ── استخراج اللاعب بأمان ──
-    player = getattr(move, 'who', None) or getattr(move, 'pos', None)
-
-    if player is None:
-        icon  = "🎲"
-        label = "؟"
-    else:
-        icon  = getattr(player, 'icon',  "🎲")
-        label = getattr(player, 'label', "؟")
-
-    # ── باس ──
+def format_move(move: Move) -> str:
+    icon = move.who.icon
+    name = move.who.label
     if move.is_pass:
-        return f"{icon} {label}: دق 🚫"
-
-    # ── حركة عادية ──
-    d = "⬅️ يسار" if move.direction == Direction.LEFT else "➡️ يمين"
-    return f"{icon} {label}: {move.tile} {d}"
+        return f"{icon} {name}: دق 🚫"
+    d = "⬅️" if move.direction == Direction.LEFT else "➡️"
+    return f"{icon} {name}: {move.tile} {d}"
