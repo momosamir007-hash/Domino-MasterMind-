@@ -47,7 +47,7 @@ class DominoVision:
                 # الحصول على المستطيل المائل الذي يحيط بالحجر
                 rect = cv2.minAreaRect(cnt)
                 box = cv2.boxPoints(rect)
-                box = np.int0(box)
+                box = np.int32(box)
                 
                 # حساب العرض والطول للتحقق من أن الشكل يشبه مستطيل الدومينو (النسبة تقريباً 1:2)
                 width = rect[1][0]
