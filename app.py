@@ -48,9 +48,10 @@ for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = copy.deepcopy(v) if isinstance(v, (list, dict)) else v
 
-
-def S(k, v=None):
-    if v is not None:
+# 🟢 تم إصلاح الدالة القاتلة! الآن تقبل تعيين القيمة إلى None لمسح الحجر المعلق
+_NO_VALUE = object()
+def S(k, v=_NO_VALUE):
+    if v is not _NO_VALUE:
         st.session_state[k] = v
     return st.session_state.get(k)
 
@@ -70,42 +71,33 @@ def tile_key(t):
 
 def get_remaining_tiles(gs):
     """
-    الأحجار المتبقية استناداً إلى المحرك مباشرة!
+    الأحجار المتبقية = كل الأحجار − يدي − الملعوبة فعلياً على الطاولة
+    (تم الاعتماد على المحرك لضمان عدم تكرار الأحجار أبداً)
     """
     used = set()
     for t in gs.my_hand:
         used.add(tile_key(t))
-    
     for t in gs.board.tiles_on_table:
         used.add(tile_key(t))
-        
     return [t for t in ALL_TILES if tile_key(t) not in used]
 
 
 def apply_opponent_move(gs, turn, tile, direction):
-    """يطبّق حركة خصم/شريك بشكل محمي وآمن"""
-    # 1. منع التطبيق المزدوج لو تغير الدور
-    if gs.turn != turn:
-        show_message("❌ ليس دور هذا اللاعب!", "error")
-        return False
-        
+    """يطبّق حركة خصم/شريك بشكل كامل وآمن"""
     m = Move(turn, tile, direction)
     
-    # 2. تطبيق الحركة عبر المحرك أولاً (يتأكد من صحة الحركة ويضيفها للطاولة)
     ok = gs.apply(m)
-    
     if not ok:
-        show_message("❌ فشل تطبيق الحركة داخلياً! تأكد من القواعد.", "error")
+        show_message("❌ فشل تطبيق الحركة داخلياً!", "error")
         return False
-
-    # 3. إنقاص العداد فقط بعد التأكد التام من نجاح الحركة
+        
+    # إنقاص العداد يدوياً للخصم لأن المحرك لا يعرف يد الخصم المتبقية
     gs.players[turn].count -= 1
     
-    # 4. تحديث السجلات
-    new_log = list(S('log')) + [format_move(m)]
-    S('log', new_log)
+    # تحديث السجل والرسائل
+    S('log', S('log') + [format_move(m)])
     S('advice', None)
-    S('pending_tile', None)
+    S('pending_tile', None) # الآن سيعمل هذا السطر بنجاح ويمسح الحجر!
     
     dir_label = "⬅️ يسار" if direction == Direction.LEFT else "➡️ يمين"
     S('msg', f"✅ {turn.label} لعب [{tile.a}|{tile.b}] {dir_label}")
@@ -114,8 +106,7 @@ def apply_opponent_move(gs, turn, tile, direction):
     if gs.game_over:
         S('phase', 'over')
         
-    # 5. حفظ إجباري للحالة لمنع فقدانها (السبب الرئيسي للمشكلة السابقة)
-    S('state', gs)
+    S('state', gs) # حفظ إجباري لحالة اللعبة لمنع فقدان الذاكرة
     return True
 
 
@@ -289,40 +280,35 @@ elif phase == 'playing':
                         adv['best_move'].tile == m.tile and
                         adv['best_move'].direction == m.direction
                     )
-                    # ضمان تفرد المفتاح باضافة الاتجاه لمنع تداخل الأزرار
                     if st.button(
                         f"{'⭐' if is_rec else ''} [{m.tile.a}|{m.tile.b}] {d}",
-                        key=f"m_{i}_{m.direction.value}", 
+                        key=f"m_{i}_{m.direction.value}",
                         use_container_width=True,
                         type="primary" if is_rec else "secondary",
                     ):
                         if gs.turn == Pos.ME:
                             ok = gs.apply(m)
                             if ok:
-                                new_log = list(S('log')) + [format_move(m)]
-                                S('log', new_log)
+                                S('log', S('log') + [format_move(m)])
                                 S('advice', None)
                                 S('msg', f"✅ لعبت {m.tile}")
                                 S('msg_type', 'success')
                                 if gs.game_over:
                                     S('phase', 'over')
-                                S('state', gs) # حفظ اجباري
+                                S('state', gs)
                                 st.rerun()
-                            else:
-                                show_message("❌ حركة غير صالحة!", "error")
                                 
         if any(m.is_pass for m in valid):
             if st.button("🚫 دق", use_container_width=True):
                 if gs.turn == Pos.ME:
                     gs.apply(Move(Pos.ME, None, None))
-                    new_log = list(S('log')) + ["🟢 أنت: دق 🚫"]
-                    S('log', new_log)
+                    S('log', S('log') + ["🟢 أنت: دق 🚫"])
                     S('advice', None)
                     S('msg', "🚫 دقيت")
                     S('msg_type', 'warning')
                     if gs.game_over:
                         S('phase', 'over')
-                    S('state', gs) # حفظ اجباري
+                    S('state', gs)
                     st.rerun()
 
     # ═══════════════════════════════════
@@ -346,6 +332,7 @@ elif phase == 'playing':
             """, unsafe_allow_html=True)
             c1, _, c2 = st.columns([2, 1, 2])
             
+            # مفاتيح ديناميكية لمنع تداخل أزرار Streamlit
             btn_key = f"{pending.a}_{pending.b}_{turn.value}"
             
             with c1:
@@ -358,7 +345,7 @@ elif phase == 'playing':
                         st.rerun()
             st.markdown("")
             if st.button("❌ إلغاء واختيار حجر آخر", key=f"pend_cancel_{btn_key}", use_container_width=True):
-                S('pending_tile', None)
+                S('pending_tile', None) # الآن سيعمل الإلغاء فوراً!
                 st.rerun()
 
         # ─── حالة 2: اختيار حجر (العرض الذكي) ───
@@ -386,7 +373,7 @@ elif phase == 'playing':
                                 key=f"opp_{t.a}_{t.b}_{turn.value}",
                                 use_container_width=True,
                             ):
-                                dirs = gs.board.can_play(t) 
+                                dirs = gs.board.can_play(t)
                                 if len(dirs) == 1:
                                     if apply_opponent_move(gs, turn, t, dirs[0]):
                                         st.rerun()
@@ -394,7 +381,7 @@ elif phase == 'playing':
                                     S('pending_tile', t)
                                     st.rerun()
                                 else:
-                                    st.error("❌ خطأ: الحجر لا يركب هنا!")
+                                    st.error("❌ خطأ: الحجر لا يركب!")
             else:
                 st.info(
                     "💡 لا توجد أحجار متبقية تركب على أطراف الطاولة الحالية.\n\n"
@@ -411,14 +398,13 @@ elif phase == 'playing':
             ):
                 if gs.turn == turn:
                     gs.apply(Move(turn, None, None))
-                    new_log = list(S('log')) + [f"{turn.icon} {turn.label}: دق 🚫"]
-                    S('log', new_log)
+                    S('log', S('log') + [f"{turn.icon} {turn.label}: دق 🚫"])
                     S('advice', None)
                     S('msg', f"🚫 {name} دق")
                     S('msg_type', 'warning')
                     if gs.game_over:
                         S('phase', 'over')
-                    S('state', gs) # حفظ اجباري
+                    S('state', gs)
                     st.rerun()
 
         # ─── يدي ───
@@ -474,7 +460,5 @@ elif phase == 'over':
         st.metric("🔴 الخصوم", f"{their} نقطة")
     if st.button("🔄 لعبة جديدة", use_container_width=True, type="primary"):
         reset()
-        st.rerun()
-
         st.rerun()
 
