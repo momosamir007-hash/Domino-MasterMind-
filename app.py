@@ -51,7 +51,7 @@ st.markdown("""
 
 
 # ═══════════════════════════════════════════════════════
-# دالة مساعدة آمنة لقراءة أطراف الطاولة
+# دوال مساعدة آمنة
 # ═══════════════════════════════════════════════════════
 def safe_ends(gs):
     """تحويل gs.board.ends إلى قائمة آمنة دائماً"""
@@ -70,6 +70,39 @@ def safe_ends(gs):
         return list(raw)
     except Exception:
         return []
+
+
+def safe_float(val, default=0.0):
+    """تحويل أي قيمة إلى float بأمان"""
+    if val is None:
+        return default
+    try:
+        result = float(val)
+        if math.isnan(result) or math.isinf(result):
+            return default
+        return result
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_int(val, default=0):
+    """تحويل أي قيمة إلى int بأمان"""
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_str(val, default='?'):
+    """تحويل أي قيمة إلى str بأمان"""
+    if val is None:
+        return default
+    try:
+        return str(val)
+    except Exception:
+        return default
 
 
 # ═══════════════════════════════════════════════════════
@@ -165,7 +198,7 @@ class PatternAnalyzer:
             profile['traits'].append(f"⚠️ قريب من الفوز ({remaining} أحجار)")
         elif remaining <= 1:
             profile['risk_to_us'] = 95
-            profile['traits'].append(f"🚨 حجر واحد فقط!")
+            profile['traits'].append("🚨 حجر واحد فقط!")
 
         agg = min(100, max(0, profile['aggression']))
         profile['aggression'] = agg
@@ -299,8 +332,8 @@ class RegretTracker:
     @staticmethod
     def record(move_label, win_rate, all_moves_data):
         entry = {
-            'move': move_label,
-            'win_rate': win_rate,
+            'move': safe_str(move_label),
+            'win_rate': safe_float(win_rate, 0.5),
             'best_available': None,
             'best_win_rate': 0.0,
             'regret': 0.0,
@@ -308,10 +341,10 @@ class RegretTracker:
         }
 
         if all_moves_data:
-            best = max(all_moves_data, key=lambda x: x.get('win_rate', 0))
-            entry['best_available'] = best.get('label', '?')
-            entry['best_win_rate'] = best.get('win_rate', 0)
-            entry['regret'] = max(0.0, entry['best_win_rate'] - win_rate)
+            best = max(all_moves_data, key=lambda x: safe_float(x.get('win_rate', 0)))
+            entry['best_available'] = safe_str(best.get('label', '?'))
+            entry['best_win_rate'] = safe_float(best.get('win_rate', 0))
+            entry['regret'] = max(0.0, entry['best_win_rate'] - entry['win_rate'])
 
         return entry
 
@@ -320,11 +353,11 @@ class RegretTracker:
         if not history:
             return None
 
-        total_regret = sum(e['regret'] for e in history)
-        worst = max(history, key=lambda e: e['regret'])
-        best = min(history, key=lambda e: e['regret'])
-        avg_wr = sum(e['win_rate'] for e in history) / len(history)
-        perfect = sum(1 for e in history if e['regret'] < 0.03)
+        total_regret = sum(safe_float(e.get('regret', 0)) for e in history)
+        worst = max(history, key=lambda e: safe_float(e.get('regret', 0)))
+        best = min(history, key=lambda e: safe_float(e.get('regret', 0)))
+        avg_wr = sum(safe_float(e.get('win_rate', 0.5)) for e in history) / len(history)
+        perfect = sum(1 for e in history if safe_float(e.get('regret', 0)) < 0.03)
 
         if total_regret < 0.05:
             grade = 'S+'
@@ -372,7 +405,22 @@ class DecisionTreeViz:
         if not all_moves:
             return "<p style='color:#888;text-align:center'>لا توجد بيانات</p>"
 
-        sorted_moves = sorted(all_moves, key=lambda x: x.get('win_rate', 0), reverse=True)
+        clean_moves = []
+        for md in all_moves:
+            if md is None:
+                continue
+            if not isinstance(md, dict):
+                continue
+            clean_moves.append({
+                'win_rate': safe_float(md.get('win_rate', 0)),
+                'label': safe_str(md.get('label', '?')),
+                'visits': safe_int(md.get('visits', 0)),
+            })
+
+        if not clean_moves:
+            return "<p style='color:#888;text-align:center'>لا توجد بيانات صالحة</p>"
+
+        sorted_moves = sorted(clean_moves, key=lambda x: x['win_rate'], reverse=True)
 
         html = '''
         <div style="font-family:'Segoe UI',Arial;direction:rtl;padding:15px;">
@@ -390,9 +438,9 @@ class DecisionTreeViz:
         '''
 
         for i, md in enumerate(sorted_moves[:8]):
-            wr = md.get('win_rate', 0)
-            label = md.get('label', '?')
-            visits = md.get('visits', 0)
+            wr = md['win_rate']
+            label = md['label']
+            visits = md['visits']
 
             if wr >= 0.65:
                 bg = 'linear-gradient(135deg,#1B5E20,#388E3C)'
@@ -449,10 +497,16 @@ class SmartCache:
     @staticmethod
     def board_hash(gs):
         parts = []
-        for t in sorted(gs.board.tiles_on_table, key=lambda x: (x.a, x.b)):
-            parts.append(f"{t.a}{t.b}")
-        for t in sorted(gs.my_hand, key=lambda x: (x.a, x.b)):
-            parts.append(f"h{t.a}{t.b}")
+        try:
+            for t in sorted(gs.board.tiles_on_table, key=lambda x: (x.a, x.b)):
+                parts.append(f"{t.a}{t.b}")
+        except Exception:
+            parts.append("board_err")
+        try:
+            for t in sorted(gs.my_hand, key=lambda x: (x.a, x.b)):
+                parts.append(f"h{t.a}{t.b}")
+        except Exception:
+            parts.append("hand_err")
         parts.append(f"t{gs.turn.value}")
         ends_list = safe_ends(gs)
         if ends_list:
@@ -462,14 +516,30 @@ class SmartCache:
 
     @staticmethod
     def get(cache_dict, gs):
+        if not isinstance(cache_dict, dict):
+            return None
         h = SmartCache.board_hash(gs)
         entry = cache_dict.get(h, None)
-        if entry:
-            entry['hits'] = entry.get('hits', 0) + 1
+        if entry is None:
+            return None
+        if not isinstance(entry, dict):
+            return None
+        result = entry.get('result', None)
+        if result is None:
+            return None
+        if not isinstance(result, dict):
+            return None
+        if 'best_move' not in result:
+            return None
+        entry['hits'] = entry.get('hits', 0) + 1
         return entry
 
     @staticmethod
     def put(cache_dict, gs, result):
+        if not isinstance(cache_dict, dict):
+            return
+        if not isinstance(result, dict):
+            return
         h = SmartCache.board_hash(gs)
         cache_dict[h] = {
             'result': result,
@@ -477,14 +547,19 @@ class SmartCache:
             'hits': 0,
         }
         if len(cache_dict) > 500:
-            oldest = sorted(cache_dict.items(), key=lambda x: x[1]['timestamp'])
+            oldest = sorted(cache_dict.items(), key=lambda x: x[1].get('timestamp', 0))
             for k, _ in oldest[:100]:
                 del cache_dict[k]
 
     @staticmethod
     def stats(cache_dict):
+        if not isinstance(cache_dict, dict):
+            return {'entries': 0, 'total_hits': 0}
         total = len(cache_dict)
-        total_hits = sum(v.get('hits', 0) for v in cache_dict.values())
+        total_hits = 0
+        for v in cache_dict.values():
+            if isinstance(v, dict):
+                total_hits += v.get('hits', 0)
         return {'entries': total, 'total_hits': total_hits}
 
 
@@ -806,6 +881,27 @@ def apply_opponent_move(gs, turn, tile, direction):
         S('phase', 'over')
     S('state', gs)
     return True
+
+
+def safe_render_tree(all_moves):
+    """عرض شجرة القرار بأمان تام"""
+    try:
+        if not all_moves:
+            return
+        tree_html = DecisionTreeViz.render_html(all_moves)
+        if tree_html:
+            components.html(tree_html, height=350, scrolling=True)
+    except Exception:
+        st.caption("⚠️ تعذّر عرض شجرة القرار")
+
+
+def safe_analysis_chart(all_moves):
+    """عرض مخطط التحليل بأمان"""
+    try:
+        if all_moves:
+            SVG.analysis_chart(all_moves)
+    except Exception:
+        st.caption("⚠️ تعذّر عرض مخطط التحليل")
 
 
 # ═══════════════════════════════════════════════════════
@@ -1215,8 +1311,8 @@ elif phase == 'playing':
             ends_list = safe_ends(gs)
             if ends_list:
                 for t, prob in enemy_rep['likely']:
-                    if prob > 0.4 and (t.a in ends_list or t.b in ends_list):
-                        threats.append((t, prob))
+                    if safe_float(prob) > 0.4 and (t.a in ends_list or t.b in ends_list):
+                        threats.append((t, safe_float(prob)))
                 for t in enemy_rep['certain']:
                     if t.a in ends_list or t.b in ends_list:
                         threats.append((t, 1.0))
@@ -1344,10 +1440,10 @@ elif phase == 'playing':
 
         with col_result:
             adv = S('advice')
-            if adv:
+            if adv and isinstance(adv, dict) and 'best_move' in adv:
                 bm = adv['best_move']
-                wr = adv['win_rate']
-                exp = adv['explanation']
+                wr = safe_float(adv.get('win_rate', 0))
+                exp = safe_str(adv.get('explanation', ''))
                 if bm.is_pass:
                     txt = "دق 🚫"
                 else:
@@ -1368,17 +1464,17 @@ elif phase == 'playing':
                 </div>
                 ''', unsafe_allow_html=True)
 
-                if adv['reasons']:
+                if adv.get('reasons'):
                     with st.expander("📝 أسرار هذه الحركة؟", expanded=True):
                         for r in adv['reasons']:
                             st.markdown(f"- {r}")
 
-                if adv['all_moves']:
+                all_moves = adv.get('all_moves')
+                if all_moves:
                     with st.expander("🌳 شجرة القرار المرئية", expanded=True):
-                        tree_html = DecisionTreeViz.render_html(adv['all_moves'])
-                        components.html(tree_html, height=350, scrolling=True)
+                        safe_render_tree(all_moves)
 
-                    SVG.analysis_chart(adv['all_moves'])
+                    safe_analysis_chart(all_moves)
 
         # ─── X-Ray ───
         if S('show_xray'):
@@ -1393,13 +1489,14 @@ elif phase == 'playing':
                         if r['certain']:
                             st.success(f"✅ أوراق مؤكدة: {', '.join(str(t) for t in r['certain'])}")
                         for tile, prob in r['likely'][:8]:
-                            if prob < 0.01:
+                            p_val = safe_float(prob)
+                            if p_val < 0.01:
                                 continue
                             lc1, lc2 = st.columns([1, 4])
                             with lc1:
                                 st.write(f"**{tile}**")
                             with lc2:
-                                st.progress(min(prob, 1.0), text=f"{prob:.0%}")
+                                st.progress(min(p_val, 1.0), text=f"{p_val:.0%}")
 
         # ─── أزرار اللعب ───
         st.markdown("#### 👇 نفذ حركتك:")
@@ -1409,12 +1506,11 @@ elif phase == 'playing':
             for i, m in enumerate(real):
                 with bcols[i % len(bcols)]:
                     d = "⬅️" if m.direction == Direction.LEFT else "➡️"
-                    is_rec = (
-                        adv
-                        and not adv['best_move'].is_pass
-                        and adv['best_move'].tile == m.tile
-                        and adv['best_move'].direction == m.direction
-                    )
+                    is_rec = False
+                    if adv and isinstance(adv, dict) and 'best_move' in adv:
+                        bm = adv['best_move']
+                        if not bm.is_pass:
+                            is_rec = (bm.tile == m.tile and bm.direction == m.direction)
 
                     btn_text = f"{'⭐' if is_rec else ''} [{m.tile.a}|{m.tile.b}] {d}"
                     if st.button(
@@ -1432,16 +1528,18 @@ elif phase == 'playing':
                             if ok:
                                 S('log', S('log') + [format_move(m)])
 
-                                if adv and adv.get('all_moves'):
+                                if adv and isinstance(adv, dict) and adv.get('all_moves'):
                                     move_label = f"[{m.tile.a}|{m.tile.b}]"
                                     chosen_wr = 0.5
                                     if is_rec:
-                                        chosen_wr = adv.get('win_rate', 0.5)
+                                        chosen_wr = safe_float(adv.get('win_rate', 0.5))
                                     else:
                                         for amd in adv['all_moves']:
-                                            amd_label = amd.get('label', '')
+                                            if amd is None or not isinstance(amd, dict):
+                                                continue
+                                            amd_label = safe_str(amd.get('label', ''))
                                             if move_label in amd_label:
-                                                chosen_wr = amd.get('win_rate', 0.5)
+                                                chosen_wr = safe_float(amd.get('win_rate', 0.5))
                                                 break
                                     regret_entry = RegretTracker.record(
                                         move_label, chosen_wr, adv['all_moves']
@@ -1469,7 +1567,7 @@ elif phase == 'playing':
                     S('log', S('log') + ["🟢 أنت: دق 🚫"])
 
                     adv = S('advice')
-                    if adv and adv.get('all_moves'):
+                    if adv and isinstance(adv, dict) and adv.get('all_moves'):
                         regret_entry = RegretTracker.record("دق", 0.4, adv['all_moves'])
                         rh = S('regret_history')
                         rh.append(regret_entry)
@@ -1494,12 +1592,15 @@ elif phase == 'playing':
         pa = PatternAnalyzer(gs)
         cp = pa.analyze_player(turn)
         if cp['confidence'] > 20:
+            traits_txt = ''
+            for t in cp['traits'][:2]:
+                traits_txt += f' | {t}'
             st.markdown(f'''
             <div class="pattern-card" style="padding:10px 16px;">
                 <span style="font-size:20px;">{cp['icon']}</span>
                 <span style="font-weight:bold;">{name}</span> →
                 <span style="color:#CE93D8;font-weight:bold;">{cp['style']}</span>
-                {''.join(f' | {t}' for t in cp['traits'][:2])}
+                {traits_txt}
             </div>
             ''', unsafe_allow_html=True)
 
@@ -1614,7 +1715,7 @@ elif phase == 'playing':
     if rh:
         with st.expander(f"😢 سجل الندم ({len(rh)} حركة مُحلّلة)"):
             for i, entry in enumerate(reversed(rh[-10:]), 1):
-                regret_val = entry['regret']
+                regret_val = safe_float(entry.get('regret', 0))
                 if regret_val < 0.03:
                     r_icon = "✅"
                     r_text = "قرار مثالي"
@@ -1628,14 +1729,18 @@ elif phase == 'playing':
                     r_icon = "😬"
                     r_text = f"ندم: -{regret_val:.0%}"
 
+                entry_wr = safe_float(entry.get('win_rate', 0.5))
+                entry_move = safe_str(entry.get('move', '?'))
                 st.markdown(
-                    f"`{len(rh) - i + 1}.` {r_icon} **{entry['move']}** "
-                    f"(فوز: {entry['win_rate']:.0%}) → {r_text}"
+                    f"`{len(rh) - i + 1}.` {r_icon} **{entry_move}** "
+                    f"(فوز: {entry_wr:.0%}) → {r_text}"
                 )
-                if entry['best_available'] and regret_val > 0.05:
+                best_avail = entry.get('best_available')
+                if best_avail and regret_val > 0.05:
+                    best_wr = safe_float(entry.get('best_win_rate', 0))
                     st.caption(
-                        f"   💡 الأفضل كان: {entry['best_available']} "
-                        f"({entry['best_win_rate']:.0%})"
+                        f"   💡 الأفضل كان: {best_avail} "
+                        f"({best_wr:.0%})"
                     )
 
     with st.expander("📜 سجل المعركة"):
@@ -1727,26 +1832,27 @@ elif phase == 'over':
 
             rc1, rc2 = st.columns(2)
             with rc1:
-                if summary['worst_decision'] and summary['worst_decision']['regret'] > 0.05:
-                    w = summary['worst_decision']
+                worst = summary.get('worst_decision')
+                if worst and safe_float(worst.get('regret', 0)) > 0.05:
                     st.error(
-                        f"😬 **أسوأ قرار:** {w['move']} "
-                        f"(فوز {w['win_rate']:.0%} بدل {w['best_win_rate']:.0%})\n\n"
-                        f"الأفضل كان: {w['best_available']}"
+                        f"😬 **أسوأ قرار:** {safe_str(worst.get('move', '?'))} "
+                        f"(فوز {safe_float(worst.get('win_rate', 0)):.0%} "
+                        f"بدل {safe_float(worst.get('best_win_rate', 0)):.0%})\n\n"
+                        f"الأفضل كان: {safe_str(worst.get('best_available', '?'))}"
                     )
                 else:
                     st.success("✅ لم ترتكب أخطاء كبيرة! أداء ممتاز!")
             with rc2:
-                if summary['best_decision']:
-                    b = summary['best_decision']
+                best = summary.get('best_decision')
+                if best:
                     st.success(
-                        f"⭐ **أفضل قرار:** {b['move']} "
-                        f"(فوز {b['win_rate']:.0%})"
+                        f"⭐ **أفضل قرار:** {safe_str(best.get('move', '?'))} "
+                        f"(فوز {safe_float(best.get('win_rate', 0)):.0%})"
                     )
 
             with st.expander("📋 تفاصيل كل حركة"):
                 for i, entry in enumerate(rh, 1):
-                    regret_val = entry['regret']
+                    regret_val = safe_float(entry.get('regret', 0))
                     if regret_val < 0.03:
                         r_icon = "✅"
                     elif regret_val < 0.10:
@@ -1756,8 +1862,8 @@ elif phase == 'over':
                     else:
                         r_icon = "😬"
                     st.markdown(
-                        f"`{i}.` {r_icon} **{entry['move']}** → "
-                        f"فوز {entry['win_rate']:.0%} "
+                        f"`{i}.` {r_icon} **{safe_str(entry.get('move', '?'))}** → "
+                        f"فوز {safe_float(entry.get('win_rate', 0)):.0%} "
                         f"(ندم: {regret_val:.0%})"
                     )
 
@@ -1783,7 +1889,7 @@ elif phase == 'over':
         opp_pts = st.number_input(
             "🔴 أوراق الخصوم (يمين + يسار):",
             min_value=0,
-            max_value=max(0, others_total),
+            max_value=max(1, others_total),
             value=min(max(0, others_total), 10),
         )
     with cc2:
@@ -1791,7 +1897,7 @@ elif phase == 'over':
         part_pts = st.number_input(
             "🔵 أوراق شريكك:",
             min_value=0,
-            max_value=max(0, others_total),
+            max_value=max(1, others_total),
             value=default_part,
         )
 
