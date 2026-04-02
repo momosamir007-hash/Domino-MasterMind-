@@ -51,7 +51,29 @@ st.markdown("""
 
 
 # ═══════════════════════════════════════════════════════
-# 🧠 الأنظمة الذكية الجديدة
+# دالة مساعدة آمنة لقراءة أطراف الطاولة
+# ═══════════════════════════════════════════════════════
+def safe_ends(gs):
+    """تحويل gs.board.ends إلى قائمة آمنة دائماً"""
+    if gs.board.is_empty:
+        return []
+    try:
+        raw = gs.board.ends
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple)):
+            return list(raw)
+        if isinstance(raw, set):
+            return sorted(list(raw))
+        if isinstance(raw, int):
+            return [raw]
+        return list(raw)
+    except Exception:
+        return []
+
+
+# ═══════════════════════════════════════════════════════
+# 🧠 الأنظمة الذكية
 # ═══════════════════════════════════════════════════════
 
 class PatternAnalyzer:
@@ -211,9 +233,13 @@ class DangerMeter:
             danger -= 12
             warnings.append(f"🟢 شريكك قريب ({partner_count} حجر)")
 
-        if not self.gs.board.is_empty:
-            ends = self.gs.board.ends
-            can_play = sum(1 for t in self.gs.my_hand if t.a in ends or t.b in ends)
+        ends_list = safe_ends(self.gs)
+
+        if ends_list:
+            can_play = sum(
+                1 for t in self.gs.my_hand
+                if t.a in ends_list or t.b in ends_list
+            )
             if can_play == 0:
                 danger += 25
                 warnings.append("🚨 لا تملك أحجاراً تركب!")
@@ -221,11 +247,10 @@ class DangerMeter:
                 danger += 12
                 warnings.append("⚠️ حجر واحد فقط يركب!")
 
-        if not self.gs.board.is_empty:
-            ends = self.gs.board.ends
-            if len(ends) >= 2 and ends[0] == ends[1]:
-                danger += 15
-                warnings.append(f"🔒 طرفا الطاولة = {ends[0]}! خطر قفل!")
+            if len(ends_list) >= 2:
+                if ends_list[0] == ends_list[1]:
+                    danger += 15
+                    warnings.append(f"🔒 طرفا الطاولة = {ends_list[0]}! خطر قفل!")
 
         if self.gs.passes >= 2:
             danger += 8
@@ -429,8 +454,9 @@ class SmartCache:
         for t in sorted(gs.my_hand, key=lambda x: (x.a, x.b)):
             parts.append(f"h{t.a}{t.b}")
         parts.append(f"t{gs.turn.value}")
-        if not gs.board.is_empty:
-            parts.append(f"e{''.join(map(str, gs.board.ends))}")
+        ends_list = safe_ends(gs)
+        if ends_list:
+            parts.append(f"e{''.join(map(str, ends_list))}")
         key = "_".join(parts)
         return hashlib.md5(key.encode()).hexdigest()[:16]
 
@@ -504,9 +530,13 @@ class NeuralEvaluator:
         f['hand_total'] = sum(t.total for t in gs.my_hand)
         f['doubles_in_hand'] = sum(1 for t in gs.my_hand if t.is_double)
 
-        if not gs.board.is_empty:
-            ends = gs.board.ends
-            f['playable_tiles'] = sum(1 for t in gs.my_hand if t.a in ends or t.b in ends)
+        ends_list = safe_ends(gs)
+
+        if ends_list:
+            f['playable_tiles'] = sum(
+                1 for t in gs.my_hand
+                if t.a in ends_list or t.b in ends_list
+            )
         else:
             f['playable_tiles'] = len(gs.my_hand)
 
@@ -516,13 +546,12 @@ class NeuralEvaluator:
         )
         f['partner_tiles'] = gs.players[Pos.PARTNER].count
 
-        if not gs.board.is_empty:
-            ends = gs.board.ends
+        if ends_list:
             my_nums = Counter()
             for t in gs.my_hand:
                 my_nums[t.a] += 1
                 my_nums[t.b] += 1
-            f['board_control'] = sum(my_nums.get(e, 0) for e in ends)
+            f['board_control'] = sum(my_nums.get(e, 0) for e in ends_list)
         else:
             f['board_control'] = 0
 
@@ -726,21 +755,25 @@ for k, v in DEFAULTS.items():
 
 
 _NO_VALUE = object()
+
+
 def S(k, v=_NO_VALUE):
     if v is not _NO_VALUE:
         st.session_state[k] = v
     return st.session_state.get(k)
+
 
 def reset():
     for k, v in DEFAULTS.items():
         st.session_state[k] = copy.deepcopy(v) if isinstance(v, (list, dict)) else v
 
 
-# ─── دوال مساعدة (بدون تعديل) ───
+# ─── دوال مساعدة ───
 def tile_key(t):
     if isinstance(t, Tile):
         return (min(t.a, t.b), max(t.a, t.b))
     return (min(t[0], t[1]), max(t[0], t[1]))
+
 
 def get_remaining_tiles(gs):
     used = set()
@@ -749,6 +782,7 @@ def get_remaining_tiles(gs):
     for t in gs.board.tiles_on_table:
         used.add(tile_key(t))
     return [t for t in ALL_TILES if tile_key(t) not in used]
+
 
 def apply_opponent_move(gs, turn, tile, direction):
     m = Move(turn, tile, direction)
@@ -863,14 +897,14 @@ if phase == 'training':
         </div>
         ''', unsafe_allow_html=True)
 
-        c1, c2 = st.columns(2)
-        with c1:
+        c1_t, c2_t = st.columns(2)
+        with c1_t:
             if st.button("🔁 أعد التدريب", use_container_width=True, type="primary"):
                 S('training_lesson', 0)
                 S('training_score', 0)
                 S('training_answers', {})
                 st.rerun()
-        with c2:
+        with c2_t:
             if st.button("🎮 العب مباراة حقيقية", use_container_width=True):
                 S('phase', 'setup')
                 st.rerun()
@@ -958,7 +992,6 @@ if phase == 'training':
 elif phase == 'setup':
     st.markdown("### 📝 اختر أحجارك السبعة")
 
-    # ─── مساعد الكاميرا ───
     with st.expander("📸 مساعد الكاميرا (صوّر أحجارك كمرجع)"):
         st.caption("صوّر أحجارك بالكاميرا ثم اختر من القائمة بالأسفل")
         try:
@@ -1051,8 +1084,8 @@ elif phase == 'setup':
         }
         st.info(f"🎲 **{starter_name[starter]}** سيبدأ اللعبة")
 
-        _, c, _ = st.columns([1, 2, 1])
-        with c:
+        _, c_start, _ = st.columns([1, 2, 1])
+        with c_start:
             if st.button("🎮 ابدأ السحر!", use_container_width=True, type="primary"):
                 gs = GameState()
                 gs.set_my_hand(hand.copy())
@@ -1076,7 +1109,7 @@ elif phase == 'playing':
     if S('msg'):
         show_message(S('msg'), S('msg_type'))
 
-    # ─── مؤشر الخطر الحي (يظهر دائماً) ───
+    # ─── مؤشر الخطر الحي ───
     if not gs.board.is_empty:
         dm = DangerMeter(gs)
         danger = dm.calculate()
@@ -1085,9 +1118,15 @@ elif phase == 'playing':
         d_level = danger['level']
         d_emoji = danger['emoji']
 
+        if d_score < 30:
+            danger_bg = '#1B5E20,#388E3C'
+        elif d_score < 60:
+            danger_bg = '#E65100,#F57C00'
+        else:
+            danger_bg = '#B71C1C,#D32F2F'
+
         st.markdown(f'''
-        <div class="danger-card" style="background:linear-gradient(135deg,
-        {'#1B5E20,#388E3C' if d_score < 30 else '#E65100,#F57C00' if d_score < 60 else '#B71C1C,#D32F2F'});">
+        <div class="danger-card" style="background:linear-gradient(135deg,{danger_bg});">
             <div style="display:flex;align-items:center;justify-content:center;gap:15px;">
                 <div style="font-size:32px;">{d_emoji}</div>
                 <div>
@@ -1134,7 +1173,15 @@ elif phase == 'playing':
         # ─── التقييم العصبي السريع ───
         ne = NeuralEvaluator(gs)
         n_score, n_feats, n_details = ne.evaluate()
-        n_color = "#4CAF50" if n_score >= 0.6 else "#FFC107" if n_score >= 0.4 else "#F44336"
+        if n_score >= 0.6:
+            n_color = "#4CAF50"
+            n_emoji = "😊"
+        elif n_score >= 0.4:
+            n_color = "#FFC107"
+            n_emoji = "😐"
+        else:
+            n_color = "#F44336"
+            n_emoji = "😟"
 
         st.markdown(f'''
         <div class="neural-card">
@@ -1145,7 +1192,7 @@ elif phase == 'playing':
                         وضعك: {n_score:.0%}
                     </div>
                 </div>
-                <div style="font-size:36px;">{'😊' if n_score >= 0.6 else '😐' if n_score >= 0.4 else '😟'}</div>
+                <div style="font-size:36px;">{n_emoji}</div>
             </div>
         </div>
         ''', unsafe_allow_html=True)
@@ -1159,19 +1206,19 @@ elif phase == 'playing':
         xray = XRayEngine(gs)
         report = xray.xray_report()
 
-        c1, c2 = st.columns(2)
+        col_oracle, col_partner = st.columns(2)
 
-        with c1:
+        with col_oracle:
             next_enemy = Pos.RIGHT
             enemy_rep = report[next_enemy]
             threats = []
-            if not gs.board.is_empty:
-                ends = gs.board.ends
+            ends_list = safe_ends(gs)
+            if ends_list:
                 for t, prob in enemy_rep['likely']:
-                    if prob > 0.4 and (t.a in ends or t.b in ends):
+                    if prob > 0.4 and (t.a in ends_list or t.b in ends_list):
                         threats.append((t, prob))
                 for t in enemy_rep['certain']:
-                    if t.a in ends or t.b in ends:
+                    if t.a in ends_list or t.b in ends_list:
                         threats.append((t, 1.0))
 
             st.markdown('<div class="oracle-card">', unsafe_allow_html=True)
@@ -1186,7 +1233,7 @@ elif phase == 'playing':
                 st.success("✅ الخصم اليمين ضعيف على الأطراف الحالية.")
             st.markdown('</div>', unsafe_allow_html=True)
 
-        with c2:
+        with col_partner:
             partner_rep = report[Pos.PARTNER]
             partner_played = gs.players[Pos.PARTNER].played
 
@@ -1205,7 +1252,7 @@ elif phase == 'playing':
                 st.write("شريكك لم يكشف أوراقه بعد.")
             else:
                 best_nums = [
-                    n for n, c in prefs.most_common(2)
+                    n for n, cnt in prefs.most_common(2)
                     if n not in gs.players[Pos.PARTNER].passed_on
                 ]
                 if best_nums:
@@ -1221,11 +1268,18 @@ elif phase == 'playing':
             profiles = pa.analyze_all()
 
             pt1, pt2, pt3 = st.columns(3)
-            for col, pos in zip([pt1, pt2, pt3], [Pos.RIGHT, Pos.PARTNER, Pos.LEFT]):
-                with col:
+            for col_p, pos in zip([pt1, pt2, pt3], [Pos.RIGHT, Pos.PARTNER, Pos.LEFT]):
+                with col_p:
                     p = profiles[pos]
                     is_enemy = pos in [Pos.RIGHT, Pos.LEFT]
                     border_clr = "#F44336" if is_enemy else "#2196F3"
+
+                    if p['aggression'] > 60:
+                        agg_color = '#F44336'
+                    elif p['aggression'] > 35:
+                        agg_color = '#FFC107'
+                    else:
+                        agg_color = '#4CAF50'
 
                     st.markdown(f'''
                     <div class="pattern-card" style="border-color:{border_clr};">
@@ -1235,7 +1289,7 @@ elif phase == 'playing':
                         <div style="margin-top:8px;">
                             <div style="font-size:11px;color:#aaa;">عدوانية</div>
                             <div style="background:rgba(0,0,0,0.3);border-radius:6px;height:8px;overflow:hidden;margin:4px 0;">
-                                <div style="background:{'#F44336' if p['aggression']>60 else '#FFC107' if p['aggression']>35 else '#4CAF50'};
+                                <div style="background:{agg_color};
                                 height:100%;width:{p['aggression']}%;border-radius:6px;"></div>
                             </div>
                         </div>
@@ -1251,9 +1305,9 @@ elif phase == 'playing':
                     if p['favorite_numbers']:
                         st.caption(f"  🎯 أرقام مفضلة: {p['favorite_numbers']}")
 
-        # ─── زر التحليل العميق (مع ذاكرة ذكية) ───
-        ca, cr = st.columns([1, 2])
-        with ca:
+        # ─── زر التحليل العميق ───
+        col_btn, col_result = st.columns([1, 2])
+        with col_btn:
             st.markdown("<br>", unsafe_allow_html=True)
 
             cached = SmartCache.get(S('smart_cache'), gs)
@@ -1288,7 +1342,7 @@ elif phase == 'playing':
                     unsafe_allow_html=True,
                 )
 
-        with cr:
+        with col_result:
             adv = S('advice')
             if adv:
                 bm = adv['best_move']
@@ -1299,7 +1353,12 @@ elif phase == 'playing':
                 else:
                     d = "⬅️ يسار" if bm.direction == Direction.LEFT else "➡️ يمين"
                     txt = f"{bm.tile} {d}"
-                wr_color = "#4CAF50" if wr >= 0.6 else "#FFC107" if wr >= 0.4 else "#F44336"
+                if wr >= 0.6:
+                    wr_color = "#4CAF50"
+                elif wr >= 0.4:
+                    wr_color = "#FFC107"
+                else:
+                    wr_color = "#F44336"
                 st.markdown(f'''
                 <div class="glow-card">
                     <div style="font-size:12px;color:#A5D6A7">🧠 قرار المحرك النهائي:</div>
@@ -1314,7 +1373,6 @@ elif phase == 'playing':
                         for r in adv['reasons']:
                             st.markdown(f"- {r}")
 
-                # ─── شجرة القرار المرئية ───
                 if adv['all_moves']:
                     with st.expander("🌳 شجرة القرار المرئية", expanded=True):
                         tree_html = DecisionTreeViz.render_html(adv['all_moves'])
@@ -1374,16 +1432,17 @@ elif phase == 'playing':
                             if ok:
                                 S('log', S('log') + [format_move(m)])
 
-                                # ─── تسجيل الندم ───
-                                if adv and adv['all_moves']:
+                                if adv and adv.get('all_moves'):
                                     move_label = f"[{m.tile.a}|{m.tile.b}]"
-                                    chosen_wr = wr if is_rec else 0.5
-                                    for amd in adv['all_moves']:
-                                        if amd.get('label', '') == move_label or (
-                                            m.tile and str(m.tile) in amd.get('label', '')
-                                        ):
-                                            chosen_wr = amd.get('win_rate', 0.5)
-                                            break
+                                    chosen_wr = 0.5
+                                    if is_rec:
+                                        chosen_wr = adv.get('win_rate', 0.5)
+                                    else:
+                                        for amd in adv['all_moves']:
+                                            amd_label = amd.get('label', '')
+                                            if move_label in amd_label:
+                                                chosen_wr = amd.get('win_rate', 0.5)
+                                                break
                                     regret_entry = RegretTracker.record(
                                         move_label, chosen_wr, adv['all_moves']
                                     )
@@ -1409,7 +1468,8 @@ elif phase == 'playing':
                     gs.apply(Move(Pos.ME, None, None))
                     S('log', S('log') + ["🟢 أنت: دق 🚫"])
 
-                    if adv and adv['all_moves']:
+                    adv = S('advice')
+                    if adv and adv.get('all_moves'):
                         regret_entry = RegretTracker.record("دق", 0.4, adv['all_moves'])
                         rh = S('regret_history')
                         rh.append(regret_entry)
@@ -1431,7 +1491,6 @@ elif phase == 'playing':
         opp_count = gs.players[turn].count
         st.markdown(f"### {turn.icon} دور: **{name}** ({opp_count} أحجار)")
 
-        # ─── تحليل نمط اللاعب الحالي ───
         pa = PatternAnalyzer(gs)
         cp = pa.analyze_player(turn)
         if cp['confidence'] > 20:
@@ -1454,13 +1513,13 @@ elif phase == 'playing':
                 <div style="font-size:13px">أين وضعه {name}؟</div>
             </div>
             """, unsafe_allow_html=True)
-            c1, _, c2 = st.columns([2, 1, 2])
+            col_left, _, col_right = st.columns([2, 1, 2])
             btn_key = f"{pending.a}_{pending.b}_{turn.value}"
-            with c1:
+            with col_left:
                 if st.button("⬅️ في اليسار", key=f"pl_{btn_key}", use_container_width=True, type="primary"):
                     if apply_opponent_move(gs, turn, pending, Direction.LEFT):
                         st.rerun()
-            with c2:
+            with col_right:
                 if st.button("في اليمين ➡️", key=f"pr_{btn_key}", use_container_width=True, type="primary"):
                     if apply_opponent_move(gs, turn, pending, Direction.RIGHT):
                         st.rerun()
@@ -1595,6 +1654,7 @@ elif phase == 'over':
     gs = S('state')
     is_locked = gs.passes >= 4
 
+    win = False
     if not is_locked:
         win = gs.winner and gs.winner.is_friend
         if win:
@@ -1707,7 +1767,7 @@ elif phase == 'over':
     my_pts = sum(t.total for t in gs.my_hand)
     pts_on_board = sum(t.total for t in gs.board.tiles_on_table)
     unplayed_total = 168 - pts_on_board
-    others_total = unplayed_total - my_pts
+    others_total = max(0, unplayed_total - my_pts)
 
     st.info(f"💡 النقاط المتبقية عند الآخرين: **{others_total} نقطة**")
 
