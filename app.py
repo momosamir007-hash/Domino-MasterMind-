@@ -1286,8 +1286,9 @@ class NeuralEvaluator:
         'trump_tiles': 0.12,
         'end_control': 0.06,
         'force_pass_potential': 0.09,
-        'scarcity_advantage': 0.05,
-        'unify_advantage': 0.12, # ميزة توحيد الأطراف لتتصل بـ EndUnifier
+        'scarcity_advantage': 0.03,  # قللنا أهميتها قليلاً لتركيز أقوى على الأطراف
+        'ends_scarcity': 0.18,      # 🎯 الميزة الجديدة: خنق الأطراف (وزن عالي جداً)
+        'unify_advantage': 0.12, 
     }
 
     def __init__(self, gs):
@@ -1304,6 +1305,7 @@ class NeuralEvaluator:
             self.play_mode = "دفاعي (قفل الطاولة) 🛡️"
             self.current_weights['hand_total'] = -0.015
             self.current_weights['unify_advantage'] = 0.25 
+            self.current_weights['ends_scarcity'] = 0.30  # 🎯 زيادة هائلة لندرة الأطراف لخنق اللعبة!
             self.current_weights['opponent_min_tiles'] = -0.25
             self.current_weights['doubles_in_hand'] = -0.10
         elif my_count <= 2:
@@ -1311,6 +1313,7 @@ class NeuralEvaluator:
             self.current_weights['board_control'] = 0.18
             self.current_weights['playable_tiles'] = 0.20
             self.current_weights['trump_tiles'] = -0.05 
+            self.current_weights['ends_scarcity'] = 0.05 # تقليل الاهتمام بالخنق لصالح إنهاء الأوراق
         else:
             self.play_mode = "متوازن ⚖️"
             self.current_weights = self.BASE_WEIGHTS.copy()
@@ -1391,11 +1394,21 @@ class NeuralEvaluator:
         f['force_pass_potential'] = min(5, force_count)
         
         counter = TileCounter(gs)
+        
+        # 1. الميزة القديمة: ندرة أوراق اليد 
         scarcity_sum = 0
         for t in gs.my_hand:
             scarcity_sum += counter.scarcity_score(t.a)
             scarcity_sum += counter.scarcity_score(t.b)
         f['scarcity_advantage'] = scarcity_sum / max(1, len(gs.my_hand) * 2) / 100.0
+
+        # 2. 🎯 الميزة الجديدة القاتلة: ندرة الأطراف المفتوحة للطاولة
+        f['ends_scarcity'] = 0.0
+        if ends_list:
+            ends_scarcity_sum = 0
+            for end_val in ends_list:
+                ends_scarcity_sum += counter.scarcity_score(end_val)
+            f['ends_scarcity'] = ends_scarcity_sum / (len(ends_list) * 100.0)
 
         # ربط كلاس EndUnifier بالتقييم العصبي 
         unifier = EndUnifier(gs)
@@ -1423,7 +1436,8 @@ class NeuralEvaluator:
             'trump_tiles': 'أوراق رابحة',
             'end_control': 'تحكم بالأطراف',
             'force_pass_potential': 'إمكانية إجبار الدق',
-            'scarcity_advantage': 'ميزة الندرة',
+            'scarcity_advantage': 'ميزة اليد النادرة',
+            'ends_scarcity': 'خنق الأطراف (الندرة)', # 🎯 الاسم الجديد في واجهة الاستخدام
             'unify_advantage': 'أفضلية توحيد الأطراف',
         }
         return names.get(feat, feat)
