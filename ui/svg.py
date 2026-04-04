@@ -400,8 +400,8 @@ class SVGRenderer:
         xy = {
             Pos.ME:      (cx,       h - 45),
             Pos.PARTNER: (cx,       45),
-            Pos.RIGHT:   (75,       cy),
-            Pos.LEFT:    (w - 75,   cy),
+            Pos.RIGHT:   (w - 75,   cy),
+            Pos.LEFT:    (75,       cy),
         }
         clr = {
             Pos.ME:      "#4CAF50",
