@@ -1,4 +1,4 @@
-""" state.py"""
+""" state.py """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple
@@ -6,12 +6,13 @@ from enum import Enum
 import copy
 from game_engine.tiles import Tile, Board, Direction, ALL_TILES
 
+
 class Pos(Enum):
     """مواقع اللاعبين"""
-    ME = 0
-    RIGHT = 1
-    PARTNER = 2
-    LEFT = 3
+    ME      = 0   # أنت (جنوب)
+    RIGHT   = 1   # يمينك (غرب)  - خصم
+    PARTNER = 2   # شريكك (شمال)
+    LEFT    = 3   # يسارك (شرق)  - خصم
 
     @property
     def is_enemy(self) -> bool:
@@ -24,34 +25,34 @@ class Pos(Enum):
     @property
     def label(self) -> str:
         return {
-            Pos.ME: "أنت 🟢",
-            Pos.RIGHT: "خصم يمين 🔴",
+            Pos.ME:      "أنت 🟢",
+            Pos.RIGHT:   "خصم يمين 🔴",
             Pos.PARTNER: "شريكك 🔵",
-            Pos.LEFT: "خصم يسار 🟠",
+            Pos.LEFT:    "خصم يسار 🟠",
         }[self]
 
     @property
     def icon(self) -> str:
         return {
-            Pos.ME: "🟢",
-            Pos.RIGHT: "🔴",
+            Pos.ME:      "🟢",
+            Pos.RIGHT:   "🔴",
             Pos.PARTNER: "🔵",
-            Pos.LEFT: "🟠",
+            Pos.LEFT:    "🟠",
         }[self]
 
     @property
     def color(self) -> str:
         """لون SVG لكل لاعب"""
         return {
-            Pos.ME:      "#4CAF50",   # أخضر
-            Pos.RIGHT:   "#F44336",   # أحمر
-            Pos.PARTNER: "#2196F3",   # أزرق
-            Pos.LEFT:    "#FF9800",   # برتقالي
+            Pos.ME:      "#4CAF50",
+            Pos.RIGHT:   "#F44336",
+            Pos.PARTNER: "#2196F3",
+            Pos.LEFT:    "#FF9800",
         }[self]
 
     @property
     def short_label(self) -> str:
-        """اسم مختصر للدائرة"""
+        """اسم مختصر يظهر داخل الدائرة"""
         return {
             Pos.ME:      "أنا",
             Pos.RIGHT:   "يمين",
@@ -105,10 +106,10 @@ class GameState:
     game_over: bool = False
     winner: Optional[Pos] = None
 
-    # ══════════════════════════════════════════════
-    # ✨ الجديد: قائمة (لاعب، رقم_التسلسل) لكل قطعة على الطاولة
+    # ══════════════════════════════════════════════════════
+    # ✨ قائمة تتبع اللاعبين: كل عنصر = (Pos, رقم_تسلسلي)
     # الترتيب مطابق تماماً لـ board.played
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
     played_by: List[Tuple[Pos, int]] = field(default_factory=list)
     _move_counter: int = field(default=0, init=False, repr=False)
 
@@ -152,6 +153,7 @@ class GameState:
 
     def apply(self, move: Move) -> bool:
         p = self.players[move.who]
+
         if move.is_pass:
             if not self.board.is_empty:
                 p.passed_on.update(self.board.ends)
@@ -163,6 +165,7 @@ class GameState:
             ok = self.board.play(move.tile, move.direction)
             if not ok:
                 return False
+
             p.remove(move.tile)
             p.played.append(move.tile)
             self.passes = 0
@@ -183,7 +186,7 @@ class GameState:
         best, bp = None, 999
         for pos, pl in self.players.items():
             if pl.total < bp:
-                bp = pl.total
+                bp  = pl.total
                 best = pos
         self.winner = best
 
