@@ -1653,9 +1653,9 @@ if phase == 'setup':
         starter = S('starter')
         starter_name = {
             Pos.ME: "🟢 أنت",
-            Pos.RIGHT: "🔴 اليمين (خصم)",
-            Pos.PARTNER: "🔵 شريكك",
             Pos.LEFT: "🟠 اليسار (خصم)",
+            Pos.PARTNER: "🔵 شريكك",
+            Pos.RIGHT: "🔴 اليمين (خصم)",
         }
         st.info(f"🎲 **{starter_name[starter]}** سيبدأ اللعبة")
         _, c_start, _ = st.columns([1, 2, 1])
