@@ -1,17 +1,17 @@
-""" حالة اللعبة الكاملة """
+""" state.py"""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Tuple
 from enum import Enum
 import copy
 from game_engine.tiles import Tile, Board, Direction, ALL_TILES
 
 class Pos(Enum):
     """مواقع اللاعبين"""
-    ME = 0       # أنت (جنوب)
-    RIGHT = 1    # يمينك (غرب) - خصم
-    PARTNER = 2  # شريكك (شمال)
-    LEFT = 3     # يسارك (شرق) - خصم
+    ME = 0
+    RIGHT = 1
+    PARTNER = 2
+    LEFT = 3
 
     @property
     def is_enemy(self) -> bool:
@@ -39,6 +39,27 @@ class Pos(Enum):
             Pos.LEFT: "🟠",
         }[self]
 
+    @property
+    def color(self) -> str:
+        """لون SVG لكل لاعب"""
+        return {
+            Pos.ME:      "#4CAF50",   # أخضر
+            Pos.RIGHT:   "#F44336",   # أحمر
+            Pos.PARTNER: "#2196F3",   # أزرق
+            Pos.LEFT:    "#FF9800",   # برتقالي
+        }[self]
+
+    @property
+    def short_label(self) -> str:
+        """اسم مختصر للدائرة"""
+        return {
+            Pos.ME:      "أنا",
+            Pos.RIGHT:   "يمين",
+            Pos.PARTNER: "شريك",
+            Pos.LEFT:    "يسار",
+        }[self]
+
+
 @dataclass
 class Player:
     pos: Pos
@@ -56,6 +77,7 @@ class Player:
             self.hand.remove(tile)
             self.count = max(0, self.count - 1)
 
+
 @dataclass
 class Move:
     who: Pos
@@ -72,6 +94,7 @@ class Move:
         d = "⬅️" if self.direction == Direction.LEFT else "➡️"
         return f"{self.who.label}: {self.tile} {d}"
 
+
 @dataclass
 class GameState:
     board: Board = field(default_factory=Board)
@@ -81,6 +104,13 @@ class GameState:
     passes: int = 0
     game_over: bool = False
     winner: Optional[Pos] = None
+
+    # ══════════════════════════════════════════════
+    # ✨ الجديد: قائمة (لاعب، رقم_التسلسل) لكل قطعة على الطاولة
+    # الترتيب مطابق تماماً لـ board.played
+    # ══════════════════════════════════════════════
+    played_by: List[Tuple[Pos, int]] = field(default_factory=list)
+    _move_counter: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self):
         if not self.players:
@@ -136,9 +166,15 @@ class GameState:
             p.remove(move.tile)
             p.played.append(move.tile)
             self.passes = 0
+
+            # ✨ تسجيل من لعب هذه القطعة ورقمها التسلسلي
+            self._move_counter += 1
+            self.played_by.append((move.who, self._move_counter))
+
             if p.count <= 0:
                 self.game_over = True
                 self.winner = move.who
+
         self.history.append(move)
         self.turn = Pos((self.turn.value + 1) % 4)
         return True
