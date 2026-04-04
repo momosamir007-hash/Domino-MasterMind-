@@ -1715,7 +1715,7 @@ elif phase == 'playing':
                 for w in danger['warnings']:
                     st.markdown(f"- {w}")
     st.markdown("### 🎯 الطاولة")
-    SVG.board(gs.board, h=200, gs=gs)
+    SVG.board(gs.board, h=200)
     with st.expander("👥 اللاعبون", expanded=True):
         SVG.players(gs, w=700, h=380)
     # ─── عدّاد القطع الاستراتيجي ───
