@@ -1715,7 +1715,7 @@ elif phase == 'playing':
                 for w in danger['warnings']:
                     st.markdown(f"- {w}")
     st.markdown("### 🎯 الطاولة")
-    SVG.board(gs.board, h=200)
+    SVG.board(gs.board, h=200, gs=gs)
     with st.expander("👥 اللاعبون", expanded=True):
         SVG.players(gs, w=700, h=380)
     # ─── عدّاد القطع الاستراتيجي ───
@@ -1731,23 +1731,25 @@ elif phase == 'playing':
                     scarcity = r['scarcity']
                     if remaining == 0:
                         bg_clr = '#B71C1C'
-                        status = '🔴 نفد'
                     elif remaining <= 2:
                         bg_clr = '#E65100'
-                        status = f'🟠 {remaining}'
                     elif remaining <= 4:
                         bg_clr = '#F9A825'
-                        status = f'🟡 {remaining}'
                     else:
                         bg_clr = '#2E7D32'
-                        status = f'🟢 {remaining}'
+                        
                     st.markdown(f'''
-                    <div style="background:{bg_clr};border-radius:10px;padding:8px; text-align:center;color:#fff;margin:2px 0;">
-                        <div style="font-size:20px;font-weight:bold;">[ {n} ]</div>
-                        <div style="font-size:11px;margin:4px 0;">{status} باقي</div>
-                        <div style="font-size:10px;opacity:0.8;"> 🎯 {r['on_board']} طاولة | ✋ {r['in_hand']} يدك </div>
+                    <div style="background:{bg_clr};border-radius:10px;padding:8px; text-align:center;color:#fff;margin:2px 0;box-shadow:0 2px 5px rgba(0,0,0,0.2);">
+                        <div style="font-size:22px;font-weight:bold;margin-bottom:2px;">[ {n} ]</div>
+                        <div style="font-size:10px;opacity:0.9;margin-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.2);padding-bottom:2px;">إجمالي القطع: 7</div>
+                        <div style="font-size:12px;line-height:1.6;background:rgba(0,0,0,0.15);border-radius:6px;padding:4px;">
+                            🎯 طاولة: <b>{r['on_board']}</b><br>
+                            👥 خصوم: <b>{r['remaining']}</b><br>
+                            ✋ يدك: <b>{r['in_hand']}</b>
+                        </div>
                     </div>
                     ''', unsafe_allow_html=True)
+
             exhausted = counter.exhausted_numbers()
             if exhausted:
                 st.error(f"🔴 أرقام نفدت تماماً: **{', '.join(map(str, exhausted))}** - إذا صار الطرف أحدها = قفل!")
