@@ -1457,6 +1457,7 @@ DEFAULTS = {
     'time_limit': 3.5,
     'show_xray': True,
     'show_strategy': True,
+    'show_tracker': True,
     'pending_tile': None,
     'starter': Pos.ME,
     'regret_history': [],
@@ -1540,6 +1541,7 @@ with st.sidebar:
     S('time_limit', st.slider("زمن الرؤية (ثواني)", 1.0, 10.0, S('time_limit'), 0.5))
     S('show_xray', st.checkbox("🔬 تفعيل X-Ray", S('show_xray')))
     S('show_strategy', st.checkbox("📊 النصائح الاستراتيجية", S('show_strategy')))
+    S('show_tracker', st.checkbox("🔵 إظهار متتبع اللاعبين", S('show_tracker')))
     st.markdown("---")
     cache_stats = SmartCache.stats(S('smart_cache'))
     if cache_stats['entries'] > 0:
@@ -1715,7 +1717,7 @@ elif phase == 'playing':
                 for w in danger['warnings']:
                     st.markdown(f"- {w}")
     st.markdown("### 🎯 الطاولة")
-    SVG.board(gs.board, h=200, played_by=gs.played_by)
+    SVG.board(gs.board, h=200, played_by=gs.played_by if S('show_tracker') else None)
     with st.expander("👥 اللاعبون", expanded=True):
         SVG.players(gs, w=700, h=380)
     # ─── عدّاد القطع الاستراتيجي ───
@@ -2341,7 +2343,7 @@ elif phase == 'over':
             unsafe_allow_html=True,
         )
     st.markdown("### 🎯 الطاولة النهائية")
-    SVG.board(gs.board, h=200, played_by=gs.played_by)
+    SVG.board(gs.board, h=200, played_by=gs.played_by if S('show_tracker') else None)
     # ─── تقرير الندم النهائي ───
     rh = S('regret_history')
     if rh:
