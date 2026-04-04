@@ -1715,7 +1715,7 @@ elif phase == 'playing':
                 for w in danger['warnings']:
                     st.markdown(f"- {w}")
     st.markdown("### 🎯 الطاولة")
-    SVG.board(gs.board, h=200)
+    SVG.board(gs.board, h=200, played_by=gs.played_by)
     with st.expander("👥 اللاعبون", expanded=True):
         SVG.players(gs, w=700, h=380)
     # ─── عدّاد القطع الاستراتيجي ───
@@ -2341,7 +2341,7 @@ elif phase == 'over':
             unsafe_allow_html=True,
         )
     st.markdown("### 🎯 الطاولة النهائية")
-    SVG.board(gs.board, h=200)
+    SVG.board(gs.board, h=200, played_by=gs.played_by)
     # ─── تقرير الندم النهائي ───
     rh = S('regret_history')
     if rh:
